@@ -146,6 +146,12 @@ def get_config():
         default=constants.SUBNET_UID,
         help="The subnet UID.",
     )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="bfloat16",
+        help="datatype to load model in, either bfloat16 or float16",
+    )
 
     # Include wallet and logging arguments from bittensor
     bt.wallet.add_args(parser)
@@ -230,7 +236,7 @@ async def main(config: bt.config):
         raise RuntimeError(
             f"No model parameters found for block {block}"
         )
-    model_parameters.kwargs["torch_dtype"] = torch.bfloat16
+    model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if config.dtype == "bfloat16" else torch.float16
     if config.attn_implementation:
         model_parameters.kwargs["attn_implementation"] = config.attn_implementation
 

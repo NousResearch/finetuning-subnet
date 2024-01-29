@@ -131,6 +131,12 @@ class Validator:
             action="store_true",
             help="Do not used cached UID state, start from scratch",
         )
+        parser.add_argument(
+            "--dtype",
+            type=str,
+            default="bfloat16",
+            help="datatype to load model in, either bfloat16 or float16",
+        )
 
         bt.subtensor.add_args(parser)
         bt.logging.add_args(parser)
@@ -486,7 +492,7 @@ class Validator:
         if model_parameters is None:
             bt.logging.warning(f"No model parameters for block {self.metagraph.block}, cannot run step")
             return
-        model_parameters.kwargs["torch_dtype"] = torch.bfloat16
+        model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if self.config.dtype == "bfloat16" else torch.float16
         if self.config.attn_implementation:
             model_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
 
