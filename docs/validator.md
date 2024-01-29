@@ -47,11 +47,11 @@ def iswin( loss_a, loss_b, block_a, block_b ):
     return loss_a < loss_b
 ```
 
-It is important to note that this affects the game theoretics of the incentive landscape since miners should only update their model (thus updating their timestamp to a newer date) if they have achieved an `epsilon` better loss on average on the Falcon Refined Web dataset than their previous model. This undermines the obvious optimal strategy for miners to copy the publicly available models from other miners. They **can** and should copy other miners, but they will always obtain fewer wins compared to them until they also decrease their loss by `epsilon`.
+It is important to note that this affects the game theoretics of the incentive landscape since miners should only update their model (thus updating their timestamp to a newer date) if they have achieved an `epsilon` better loss on average on the [Cortex.t subnet](https://taostats.io/subnets/netuid-18/) dataset than their previous model. This undermines the obvious optimal strategy for miners to copy the publicly available models from other miners. They **can** and should copy other miners, but they will always obtain fewer wins compared to them until they also decrease their loss by `epsilon`.
 
 # System Requirements
 
-Validators will need enough disk space to store the model of every miner in the subnet. Each model (As of Jan 1st, 2024) is limited to 15 GB and 7B parameters, and the validator has cleanup logic to remove old models. It is recommended to have at least 500 GB of disk space.
+Validators will need enough disk space to store the model of every miner in the subnet. Each model (As of Jan 1st, 2024) is limited to 15 GB and 7B parameters, and the validator has cleanup logic to remove old models. It is recommended to have at least 3 TB of disk space.
 
 Validators will need enough processing power to evaluate their model. As of Jan 1st, 2024 it is required to have a GPU with atleast 24 GB of VRAM.
 

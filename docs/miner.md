@@ -8,7 +8,7 @@ The communication between a miner and a validator happens asynchronously chain a
 
 # System Requirements
 
-Miners will need enough disk space to store their model as they work on. Each uploaded model (As of Jan 1st, 2024) may not be more than 15 GB. It is reommended to have at least 25 GB of disk space.
+Miners will need enough disk space to store their model as they work on. Each uploaded model (As of Jan 1st, 2024) may not be more than 15 GB. It is recommended to have at least 25 GB of disk space.
 
 Miners will need enough processing power to train their model. The device the model is trained on is recommended to be a large GPU with atleast 48 GB of VRAM.
 
@@ -120,7 +120,7 @@ python scripts/upload_model.py --load_model_dir <path to model> --hf_repo_id my-
 
 ## Running a custom Miner
 
-As of Jan 1st, 2024 the subnet works with any model supported by [AutoModelForCausalLM](https://huggingface.co/docs/transformers/model_doc/auto#transformers.AutoModelForCausalLM) subject to the following constraints:
+As of Jan 1st, 2024 the subnet works with any model supported by [LlamaForCausalLM](https://huggingface.co/docs/transformers/v4.37.2/en/model_doc/llama2#transformers.LlamaForCausalLM) subject to the following constraints:
 1. Has less than 7B parameters.
 2. Total size of the repo is less than 15 Gigabytes.
 3. 2K max token sequence length.
