@@ -1,4 +1,4 @@
-bittensor==6.6.1
+bittensor==6.7.0
 huggingface_hub
 matplotlib
 numpy
