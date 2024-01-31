@@ -141,7 +141,7 @@ class Validator:
         parser.add_argument(
             "--grace_period_minutes",
             type=int,
-            default=60,
+            default=180,
             help="Grace period before old submissions from a UID are deleted",
         )
 
