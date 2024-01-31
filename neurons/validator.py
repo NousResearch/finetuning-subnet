@@ -144,6 +144,12 @@ class Validator:
             default=180,
             help="Grace period before old submissions from a UID are deleted",
         )
+        parser.add_argument(
+            "--update_delay_minutes",
+            type=int,
+            default=60,
+            help="Period between checking for new models from each UID",
+        )
 
         bt.subtensor.add_args(parser)
         bt.logging.add_args(parser)
@@ -262,7 +268,11 @@ class Validator:
 
         # == Initialize the update thread ==
         self.stop_event = threading.Event()
-        self.update_thread = threading.Thread(target=self.update_models, daemon=True)
+        self.update_thread = threading.Thread(
+            target=self.update_models,
+            args=(self.config.update_delay_minutes,),
+            daemon=True
+        )
         self.update_thread.start()
 
         # == Initialize the cleaner thread to remove outdated models ==
@@ -318,7 +328,7 @@ class Validator:
             os.path.join(self.state_path(), Validator.TRACKER_FILENAME)
         )
 
-    def update_models(self):
+    def update_models(self, update_delay_minutes):
         # Track how recently we updated each uid
         uid_last_checked = dict()
 
@@ -329,15 +339,15 @@ class Validator:
                 # Get the next uid to check
                 next_uid = next(self.miner_iterator)
 
-                # Confirm that we haven't checked it in the last 5 minutes.
+                # Confirm that we haven't checked it in the last `update_delay_minutes` minutes.
                 time_diff = (
                     dt.datetime.now() - uid_last_checked[next_uid]
                     if next_uid in uid_last_checked
                     else None
                 )
 
-                if time_diff and time_diff < dt.timedelta(minutes=5):
-                    # If we have seen it within 5 minutes then sleep until it has been at least 5 minutes.
+                if time_diff and time_diff < dt.timedelta(minutes=update_delay_minutes):
+                    # If we have seen it within 5 minutes then sleep until it has been at least `update_delay_minutes` minutes.
                     time_to_sleep = (
                         dt.timedelta(minutes=5) - time_diff
                     ).total_seconds()
@@ -713,6 +723,12 @@ class Validator:
                 "block": self.metagraph.block.item(),
                 "uid_data": {
                     str(uid): uid_data[str(uid)]["average_loss"] for uid in uids
+                },
+                "win_rate_data": {
+                    str(uid): uid_data[str(uid)]["win_rate"] for uid in uids
+                },
+                "win_total_data": {
+                    str(uid): uid_data[str(uid)]["win_total"] for uid in uids
                 },
                 "weight_data": {str(uid): self.weights[uid].item() for uid in uids},
                 "load_model_perf_log": load_model_perf_str,
