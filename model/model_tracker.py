@@ -1,9 +1,9 @@
 import copy
+import datetime
 import threading
 from typing import Dict, List, Optional, Set
 import pickle
 import bittensor as bt
-
 from model.data import ModelMetadata
 
 
@@ -18,6 +18,8 @@ class ModelTracker:
     ):
         # Create a dict from miner hotkey to model metadata.
         self.miner_hotkey_to_model_metadata_dict = dict()
+        # Create a dict from miner hotkey to last time it was evaluated/loaded/updated
+        self.miner_hotkey_to_last_touched_dict = dict()
 
         # Make this class thread safe because it will be accessed by multiple threads.
         # One for the downloading new models loop and one for the validating models loop.
@@ -55,6 +57,13 @@ class ModelTracker:
                 return self.miner_hotkey_to_model_metadata_dict[hotkey]
             return None
 
+    def get_miner_hotkey_to_last_touched_dict(self) -> Dict[str, datetime.datetime]:
+        """Returns the mapping from miner hotkey to last time it was touched."""
+
+        # Return a copy to ensure outside code can't modify the scores.
+        with self.lock:
+            return copy.deepcopy(self.miner_hotkey_to_last_touched_dict)
+
     def on_hotkeys_updated(self, incoming_hotkeys: Set[str]):
         """Notifies the tracker which hotkeys are currently being tracked on the metagraph."""
 
@@ -62,7 +71,12 @@ class ModelTracker:
             existing_hotkeys = set(self.miner_hotkey_to_model_metadata_dict.keys())
             for hotkey in existing_hotkeys - incoming_hotkeys:
                 del self.miner_hotkey_to_model_metadata_dict[hotkey]
-                bt.logging.trace(f"Removed outdated hotkey: {hotkey} from ModelTracker")
+                bt.logging.trace(f"Removed outdated hotkey metadata: {hotkey} from ModelTracker")
+
+            existing_hotkeys = set(self.miner_hotkey_to_last_touched_dict.keys())
+            for hotkey in existing_hotkeys - incoming_hotkeys:
+                del self.miner_hotkey_to_last_touched_dict[hotkey]
+                bt.logging.trace(f"Removed outdated hotkey timestamp: {hotkey} from ModelTracker")
 
     def on_miner_model_updated(
         self,
@@ -77,5 +91,25 @@ class ModelTracker:
         """
         with self.lock:
             self.miner_hotkey_to_model_metadata_dict[hotkey] = model_metadata
+            self.miner_hotkey_to_last_touched_dict[hotkey] = datetime.datetime.now()
 
             bt.logging.trace(f"Updated Miner {hotkey}. ModelMetadata={model_metadata}.")
+
+    def touch_miner_model(self, hotkey: str) -> None:
+        """Notifies the tracker that a miner has been touched."""
+
+        now = datetime.datetime.now()
+        with self.lock:
+            self.miner_hotkey_to_last_touched_dict[hotkey] = now
+
+            bt.logging.trace(f"Touched Miner {hotkey}. datetime={now}.")
+
+    def touch_all_miner_models(self) -> None:
+        """Touch all miner models."""
+
+        now = datetime.datetime.now()
+        with self.lock:
+            for hotkey in list(self.miner_hotkey_to_model_metadata_dict.keys()):
+                self.miner_hotkey_to_last_touched_dict[hotkey] = now
+
+            bt.logging.trace(f"Touched All Miners. datetime={now}.")

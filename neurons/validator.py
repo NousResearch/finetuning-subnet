@@ -34,6 +34,7 @@ import constants
 from model.model_tracker import ModelTracker
 from model.model_updater import ModelUpdater
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
+from model.storage.disk.utils import get_local_miners_dir
 from model.storage.disk.disk_model_store import DiskModelStore
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
 import traceback
@@ -137,6 +138,12 @@ class Validator:
             default="bfloat16",
             help="datatype to load model in, either bfloat16 or float16",
         )
+        parser.add_argument(
+            "--grace_period_minutes",
+            type=int,
+            default=60,
+            help="Grace period before old submissions from a UID are deleted",
+        )
 
         bt.subtensor.add_args(parser)
         bt.logging.add_args(parser)
@@ -227,6 +234,9 @@ class Validator:
                 self.uids_to_eval = pickle.load(f)
                 self.pending_uids_to_eval = pickle.load(f)
 
+        # Touch all models, starting a timer for them to be deleted if not used
+        self.model_tracker.touch_all_miner_models()
+
         # Setup a miner iterator to ensure we update all miners.
         # This subnet does not differentiate between miner and validators so this is passed all uids.
         self.miner_iterator = MinerIterator(self.metagraph.uids.tolist())
@@ -256,7 +266,11 @@ class Validator:
         self.update_thread.start()
 
         # == Initialize the cleaner thread to remove outdated models ==
-        self.clean_thread = threading.Thread(target=self.clean_models, daemon=True)
+        self.clean_thread = threading.Thread(
+            target=self.clean_models,
+            args=(self.config.grace_period_minutes,),
+            daemon=True
+        )
         self.clean_thread.start()
 
     def __del__(self):
@@ -360,12 +374,12 @@ class Validator:
 
         bt.logging.info("Exiting update models loop.")
 
-    def clean_models(self):
+    def clean_models(self, grace_period_minutes: int):
         # The below loop checks to clear out all models in local storage that are no longer referenced.
         while not self.stop_event.is_set():
             try:
                 bt.logging.trace("Starting cleanup of stale models.")
-                # Clean out unreferenced models older than 360 mintues.
+                # Clean out unreferenced models
                 hotkey_to_model_metadata = (
                     self.model_tracker.get_miner_hotkey_to_model_metadata_dict()
                 )
@@ -373,12 +387,19 @@ class Validator:
                     hotkey: metadata.id
                     for hotkey, metadata in hotkey_to_model_metadata.items()
                 }
-                self.local_store.delete_unreferenced_models(hotkey_to_id, 60*360)
+                hotkey_to_model_last_touched = self.model_tracker.get_miner_hotkey_to_last_touched_dict()
+                hotkey_to_last_touched = {
+                    hotkey: touched
+                    for hotkey, touched in hotkey_to_model_last_touched.items()
+                }
+                self.local_store.delete_unreferenced_models(
+                    hotkey_to_id, hotkey_to_last_touched, 60 * grace_period_minutes
+                )
             except Exception as e:
                 bt.logging.error(f"Error in clean loop: {e}")
+                print(traceback.format_exc())
 
-            # Only check every 360 minutes.
-            time.sleep(dt.timedelta(minutes=360).total_seconds())
+            time.sleep(dt.timedelta(minutes=grace_period_minutes).total_seconds())
 
         bt.logging.info("Exiting clean models loop.")
 
@@ -513,6 +534,8 @@ class Validator:
             losses: typing.List[float] = []
 
             if model_i_metadata != None:
+                self.model_tracker.touch_miner_model(hotkey)
+
                 try:
                     # Update the block this uid last updated their model.
                     uid_to_block[uid_i] = model_i_metadata.block
