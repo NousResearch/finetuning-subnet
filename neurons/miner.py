@@ -113,12 +113,6 @@ def get_config():
     )
     parser.add_argument("--lr", type=float, default=0.00001, help="Learning rate.")
     parser.add_argument(
-        "--bs", type=int, default=constants.batch_size, help="Batch size"
-    )
-    parser.add_argument(
-        "--sl", type=int, default=constants.sequence_length, help="Sequence length"
-    )
-    parser.add_argument(
         "--accumulation_steps",
         type=int,
         default=32,
