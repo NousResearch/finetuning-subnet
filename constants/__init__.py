@@ -60,9 +60,5 @@ alpha = 0.9
 temperature = 0.04
 # validator score boosting for earlier models.
 timestamp_epsilon = 0.005
-# validators number of pages to eval over miners on each step.
-n_eval_pages = 3
-# validator eval batch size.
-batch_size = 1
 # validator eval sequence length.
 sequence_length = 2048
