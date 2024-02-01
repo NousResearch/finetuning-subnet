@@ -147,7 +147,7 @@ class Validator:
         parser.add_argument(
             "--update_delay_minutes",
             type=int,
-            default=60,
+            default=30,
             help="Period between checking for new models from each UID",
         )
 
@@ -349,7 +349,7 @@ class Validator:
                 if time_diff and time_diff < dt.timedelta(minutes=update_delay_minutes):
                     # If we have seen it within 5 minutes then sleep until it has been at least `update_delay_minutes` minutes.
                     time_to_sleep = (
-                        dt.timedelta(minutes=5) - time_diff
+                        dt.timedelta(minutes=update_delay_minutes) - time_diff
                     ).total_seconds()
                     bt.logging.trace(
                         f"Update loop has already processed all UIDs in the last 5 minutes. Sleeping {time_to_sleep} seconds."
