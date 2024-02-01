@@ -132,6 +132,11 @@ class Validator:
             help="Do not used cached UID state, start from scratch",
         )
         parser.add_argument(
+            "--adjust_to_consensus",
+            action="store_true",
+            help="Accept the consensus miners as the starting point for validation",
+        )
+        parser.add_argument(
             "--dtype",
             type=str,
             default="bfloat16",
@@ -222,6 +227,14 @@ class Validator:
                 if hotkey in self.metagraph.hotkeys:
                     uids.append(self.metagraph.hotkeys.index(hotkey))
             self.uids_to_eval = set(uids)
+        elif self.config.adjust_to_consensus:
+            consensus = [x[0] for x in sorted(
+                [(i, val.nan_to_num(0).item()) for (i, val) in enumerate(list(self.metagraph.consensus))],
+                key = lambda x: x[1],
+                reverse=True
+            )[: self.config.sample_min]]
+            self.uids_to_eval = set(consensus)
+            bt.logging.warning(f"Reset to consensus: {consensus}")
         else:
             with open(self.uids_filepath, "rb") as f:
                 self.uids_to_eval = pickle.load(f)
