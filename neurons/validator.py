@@ -80,7 +80,7 @@ class Validator:
         parser.add_argument(
             "--blocks_per_epoch",
             type=int,
-            default=300,
+            default=100,
             help="Number of blocks to wait before setting weights.",
         )
         parser.add_argument(
