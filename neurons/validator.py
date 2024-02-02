@@ -92,7 +92,7 @@ class Validator:
         parser.add_argument(
             "--latest_cortex_samples",
             type=int,
-            default=500,
+            default=600,
             help="Number of most recent Cortex samples to eval against",
         )
         parser.add_argument(
