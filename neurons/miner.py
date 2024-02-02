@@ -113,12 +113,6 @@ def get_config():
     )
     parser.add_argument("--lr", type=float, default=0.00001, help="Learning rate.")
     parser.add_argument(
-        "--bs", type=int, default=constants.batch_size, help="Batch size"
-    )
-    parser.add_argument(
-        "--sl", type=int, default=constants.sequence_length, help="Sequence length"
-    )
-    parser.add_argument(
         "--accumulation_steps",
         type=int,
         default=32,
@@ -275,10 +269,6 @@ async def main(config: bt.config):
             },
             allow_val_change=True,
         )
-
-        # At the end of the run, upload the model to wandb, for debugging purposes only.
-        # This is not seen by validators.
-        wandb_run.save(os.path.join(model_dir, "*"), base_path=model_dir, policy="end")
     else:
         bt.logging.warning(
             "Not posting run to wandb. Either --offline is specified or the wandb settings are missing."

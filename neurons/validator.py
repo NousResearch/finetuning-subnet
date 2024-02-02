@@ -34,6 +34,7 @@ import constants
 from model.model_tracker import ModelTracker
 from model.model_updater import ModelUpdater
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
+from model.storage.disk.utils import get_local_miners_dir
 from model.storage.disk.disk_model_store import DiskModelStore
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
 import traceback
@@ -47,13 +48,12 @@ import finetune as ft
 from utilities.miner_iterator import MinerIterator
 from utilities import utils
 from utilities.perf_monitor import PerfMonitor
+from transformers import AutoTokenizer
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
 class Validator:
-    TRACKER_FILENAME = "model_tracker_2.pickle"
-    UIDS_FILENAME = "uids_2.pickle"
 
     @staticmethod
     def config():
@@ -61,7 +61,7 @@ class Validator:
         parser.add_argument(
             "--device",
             type=str,
-            default="cuda" if torch.cuda.is_available() else "cpu",
+            default="cuda",
             help="Device name.",
         )
         parser.add_argument(
@@ -80,7 +80,7 @@ class Validator:
         parser.add_argument(
             "--blocks_per_epoch",
             type=int,
-            default=50,
+            default=100,
             help="Number of blocks to wait before setting weights.",
         )
         parser.add_argument(
@@ -92,7 +92,7 @@ class Validator:
         parser.add_argument(
             "--latest_cortex_samples",
             type=int,
-            default=300,
+            default=600,
             help="Number of most recent Cortex samples to eval against",
         )
         parser.add_argument(
@@ -127,15 +127,27 @@ class Validator:
             help="Implementation of attention to use",
         )
         parser.add_argument(
-            "--reset_state",
+            "--genesis",
             action="store_true",
-            help="Do not used cached UID state, start from scratch",
+            help="Don't sync to consensus, rather start evaluation from scratch",
         )
         parser.add_argument(
             "--dtype",
             type=str,
             default="bfloat16",
             help="datatype to load model in, either bfloat16 or float16",
+        )
+        parser.add_argument(
+            "--grace_period_minutes",
+            type=int,
+            default=180,
+            help="Grace period before old submissions from a UID are deleted",
+        )
+        parser.add_argument(
+            "--update_delay_minutes",
+            type=int,
+            default=20,
+            help="Period between checking for new models from each UID",
         )
 
         bt.subtensor.add_args(parser)
@@ -201,32 +213,6 @@ class Validator:
         # Setup a model tracker to track which miner is using which model id.
         self.model_tracker = ModelTracker()
 
-        # Load the state of the validator uids from file.
-        self.uids_filepath = os.path.join(self.state_path(), Validator.UIDS_FILENAME)
-
-        # Load the state of the tracker from file.
-        tracker_filepath = os.path.join(self.state_path(), Validator.TRACKER_FILENAME)
-        if not os.path.exists(tracker_filepath) or self.config.reset_state:
-            bt.logging.warning("No tracker state file found. Starting from scratch.")
-        else:
-            self.model_tracker.load_state(tracker_filepath)
-
-        if not os.path.exists(self.uids_filepath) or self.config.reset_state:
-            bt.logging.warning("No uids state file found. Starting from scratch.")
-            # === Build initial uids to eval ===
-            hotkeys = (
-                self.model_tracker.get_miner_hotkey_to_model_metadata_dict().keys()
-            )
-            uids = []
-            for hotkey in hotkeys:
-                if hotkey in self.metagraph.hotkeys:
-                    uids.append(self.metagraph.hotkeys.index(hotkey))
-            self.uids_to_eval = set(uids)
-        else:
-            with open(self.uids_filepath, "rb") as f:
-                self.uids_to_eval = pickle.load(f)
-                self.pending_uids_to_eval = pickle.load(f)
-
         # Setup a miner iterator to ensure we update all miners.
         # This subnet does not differentiate between miner and validators so this is passed all uids.
         self.miner_iterator = MinerIterator(self.metagraph.uids.tolist())
@@ -247,16 +233,64 @@ class Validator:
             metadata_store=self.metadata_store,
             remote_store=self.remote_store,
             local_store=self.local_store,
-            model_tracker=self.model_tracker,
+            model_tracker=self.model_tracker
         )
+
+        # Sync to consensus
+        if not self.config.genesis:
+            consensus = [x[0] for x in sorted(
+                [(i, val.nan_to_num(0).item()) for (i, val) in enumerate(list(self.metagraph.consensus))],
+                key = lambda x: x[1],
+                reverse=True
+            )[: self.config.sample_min]]
+
+            self.uids_to_eval = set(consensus)
+            self.pending_uids_to_eval = set()
+
+            self.weights.copy_(self.metagraph.C)
+
+            consensus_map = {
+                uid: self.weights[uid].item()
+                for uid in consensus
+            }
+            bt.logging.info(f"Consensus: {consensus_map}")
+
+            for uid in consensus:
+                hotkey = self.metagraph.hotkeys[uid]
+                asyncio.run(self.model_updater.sync_model(hotkey))
+                if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
+                    bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
+
+            # only download new models since last consensus set
+            last_consensus_block = ft.graph.nearest_tempo(
+                constants.SUBNET_START_BLOCK,
+                self.subtensor.get_subnet_hyperparameters(self.config.netuid).tempo,
+                self.metagraph.block.item()
+            )
+            bt.logging.debug(f"Only downloading models newer than block {last_consensus_block}")
+            self.model_updater.set_min_block(last_consensus_block)
+        else:
+            self.uids_to_eval = set()
+            self.pending_uids_to_eval = set()
+
+        # Touch all models, starting a timer for them to be deleted if not used
+        self.model_tracker.touch_all_miner_models()
 
         # == Initialize the update thread ==
         self.stop_event = threading.Event()
-        self.update_thread = threading.Thread(target=self.update_models, daemon=True)
+        self.update_thread = threading.Thread(
+            target=self.update_models,
+            args=(self.config.update_delay_minutes,),
+            daemon=True
+        )
         self.update_thread.start()
 
         # == Initialize the cleaner thread to remove outdated models ==
-        self.clean_thread = threading.Thread(target=self.clean_models, daemon=True)
+        self.clean_thread = threading.Thread(
+            target=self.clean_models,
+            args=(self.config.grace_period_minutes,),
+            daemon=True
+        )
         self.clean_thread.start()
 
     def __del__(self):
@@ -286,25 +320,7 @@ class Validator:
 
         bt.logging.debug(f"Started a new wandb run: {name}")
 
-    def save_state(self):
-        """Saves the state of the validator to a file."""
-
-        bt.logging.trace("Saving validator state.")
-        if not os.path.exists(self.state_path()):
-            os.makedirs(self.state_path())
-
-        with self.pending_uids_to_eval_lock:
-            # Save the state of the validator uids to file.
-            with open(self.uids_filepath, "wb") as f:
-                pickle.dump(self.uids_to_eval, f)
-                pickle.dump(self.pending_uids_to_eval, f)
-
-        # Save the state of the tracker to file.
-        self.model_tracker.save_state(
-            os.path.join(self.state_path(), Validator.TRACKER_FILENAME)
-        )
-
-    def update_models(self):
+    def update_models(self, update_delay_minutes):
         # Track how recently we updated each uid
         uid_last_checked = dict()
 
@@ -315,17 +331,17 @@ class Validator:
                 # Get the next uid to check
                 next_uid = next(self.miner_iterator)
 
-                # Confirm that we haven't checked it in the last 5 minutes.
+                # Confirm that we haven't checked it in the last `update_delay_minutes` minutes.
                 time_diff = (
                     dt.datetime.now() - uid_last_checked[next_uid]
                     if next_uid in uid_last_checked
                     else None
                 )
 
-                if time_diff and time_diff < dt.timedelta(minutes=5):
-                    # If we have seen it within 5 minutes then sleep until it has been at least 5 minutes.
+                if time_diff and time_diff < dt.timedelta(minutes=update_delay_minutes):
+                    # If we have seen it within 5 minutes then sleep until it has been at least `update_delay_minutes` minutes.
                     time_to_sleep = (
-                        dt.timedelta(minutes=5) - time_diff
+                        dt.timedelta(minutes=update_delay_minutes) - time_diff
                     ).total_seconds()
                     bt.logging.trace(
                         f"Update loop has already processed all UIDs in the last 5 minutes. Sleeping {time_to_sleep} seconds."
@@ -360,12 +376,12 @@ class Validator:
 
         bt.logging.info("Exiting update models loop.")
 
-    def clean_models(self):
+    def clean_models(self, grace_period_minutes: int):
         # The below loop checks to clear out all models in local storage that are no longer referenced.
         while not self.stop_event.is_set():
             try:
                 bt.logging.trace("Starting cleanup of stale models.")
-                # Clean out unreferenced models older than 360 mintues.
+                # Clean out unreferenced models
                 hotkey_to_model_metadata = (
                     self.model_tracker.get_miner_hotkey_to_model_metadata_dict()
                 )
@@ -373,12 +389,19 @@ class Validator:
                     hotkey: metadata.id
                     for hotkey, metadata in hotkey_to_model_metadata.items()
                 }
-                self.local_store.delete_unreferenced_models(hotkey_to_id, 60*360)
+                hotkey_to_model_last_touched = self.model_tracker.get_miner_hotkey_to_last_touched_dict()
+                hotkey_to_last_touched = {
+                    hotkey: touched
+                    for hotkey, touched in hotkey_to_model_last_touched.items()
+                }
+                self.local_store.delete_unreferenced_models(
+                    hotkey_to_id, hotkey_to_last_touched, 60 * grace_period_minutes
+                )
             except Exception as e:
                 bt.logging.error(f"Error in clean loop: {e}")
+                print(traceback.format_exc())
 
-            # Only check every 360 minutes.
-            time.sleep(dt.timedelta(minutes=360).total_seconds())
+            time.sleep(dt.timedelta(minutes=grace_period_minutes).total_seconds())
 
         bt.logging.info("Exiting clean models loop.")
 
@@ -496,6 +519,10 @@ class Validator:
         if self.config.attn_implementation:
             model_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
 
+        fixed_tokenizer = None
+        if model_parameters.tokenizer:
+            fixed_tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
+
         # Compute model losses on batches.
         bt.logging.debug(f"Computing losses on {uids}")
         losses_per_uid = {muid: None for muid in uids}
@@ -513,6 +540,8 @@ class Validator:
             losses: typing.List[float] = []
 
             if model_i_metadata != None:
+                self.model_tracker.touch_miner_model(hotkey)
+
                 try:
                     # Update the block this uid last updated their model.
                     uid_to_block[uid_i] = model_i_metadata.block
@@ -527,7 +556,7 @@ class Validator:
                     if model_i.tokenizer is None:
                         raise RuntimeError("Missing tokenizer")
 
-                    batches = cortex_data.tokenize(model_i.tokenizer)
+                    batches = cortex_data.tokenize(fixed_tokenizer if fixed_tokenizer is not None else model_i.tokenizer)
 
                     with compute_loss_perf.sample():
                         losses = ft.validation.compute_losses(
@@ -544,8 +573,8 @@ class Validator:
                     f"Unable to load the model for {uid_i}. Setting loss to inifinity."
                 )
 
-            losses_per_uid[uid_i] = losses
             average_model_loss = sum(losses) / len(losses) if len(losses) > 0 else math.inf
+            losses_per_uid[uid_i] = losses
             bt.logging.trace(
                 f"Computed model losses for uid:{uid_i} with average loss: {average_model_loss}"
             )
@@ -579,9 +608,6 @@ class Validator:
         self.uids_to_eval = set(
             sorted(win_rate, key=win_rate.get, reverse=True)[: self.config.sample_min]
         )
-
-        # Save state
-        self.save_state()
 
         # Log the performance of the eval loop.
         bt.logging.debug(pull_data_perf.summary_str())
@@ -691,6 +717,12 @@ class Validator:
                 "uid_data": {
                     str(uid): uid_data[str(uid)]["average_loss"] for uid in uids
                 },
+                "win_rate_data": {
+                    str(uid): uid_data[str(uid)]["win_rate"] for uid in uids
+                },
+                "win_total_data": {
+                    str(uid): uid_data[str(uid)]["win_total"] for uid in uids
+                },
                 "weight_data": {str(uid): self.weights[uid].item() for uid in uids},
                 "load_model_perf_log": load_model_perf_str,
                 "compute_model_perf_log": compute_loss_perf_str,
@@ -711,7 +743,6 @@ class Validator:
                 ):
                     await self.try_run_step(ttl=60 * 20)
                     await self.try_sync_metagraph(ttl=60)
-                    self.save_state()
                     bt.logging.debug(
                         f"{self.metagraph.block.item() - self.last_epoch } / {self.config.blocks_per_epoch} blocks until next epoch."
                     )
