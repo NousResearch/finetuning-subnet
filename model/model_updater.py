@@ -22,6 +22,10 @@ class ModelUpdater:
         self.remote_store = remote_store
         self.local_store = local_store
         self.model_tracker = model_tracker
+        self.min_block: Optional[int] = None
+
+    def set_min_block(self, val: Optional[int]):
+        self.min_block = val
 
     @classmethod
     def get_model_parameters_for_block(cls, block: int) -> Optional[ModelParameters]:
@@ -59,6 +63,12 @@ class ModelUpdater:
         if not metadata:
             bt.logging.trace(
                 f"No valid metadata found on the chain for hotkey {hotkey}"
+            )
+            return False
+
+        if self.min_block and metadata.block < self.min_block:
+            bt.logging.trace(
+                f"Skipping model for {hotkey} since it was submitted at block {metadata.block} which is less than the minimum block {self.min_block}"
             )
             return False
 

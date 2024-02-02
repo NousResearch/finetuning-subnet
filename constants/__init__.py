@@ -14,6 +14,8 @@ class ModelParameters:
     architecture: Type[PreTrainedModel]
     # Any additional arguments to from_pretrained
     kwargs: Any
+    # Fixed tokenizer
+    tokenizer: Optional[str]
 
 # ---------------------------------
 # Project Constants.
@@ -23,6 +25,8 @@ class ModelParameters:
 WANDB_PROJECT = "finetuning-subnet"
 # The uid for this subnet.
 SUBNET_UID = 6
+# The start block of this subnet
+SUBNET_START_BLOCK = 2225782
 # The Cortex.t validator WANDB project and filters
 CORTEX_WANDB_PROJECT = "cortex-t/multi-modality"
 CORTEX_WANDB_VERSION = "3.1.5"
@@ -37,7 +41,8 @@ MODEL_PARAMETER_SCHEDULE: List[Tuple[int, ModelParameters]] = [
     (0, ModelParameters(
             max_model_parameter_size=7 * 1024 * 1024 * 1024,
             architecture=LlamaForCausalLM,
-            kwargs={}
+            kwargs={},
+            tokenizer="mistralai/Mistral-7B-Instruct-v0.1"
         )
     )
 ]
@@ -59,6 +64,6 @@ alpha = 0.9
 # validator scoring exponential temperature
 temperature = 0.04
 # validator score boosting for earlier models.
-timestamp_epsilon = 0.005
+timestamp_epsilon = 0.02
 # validator eval sequence length.
 sequence_length = 2048

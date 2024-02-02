@@ -24,3 +24,11 @@ import bittensor as bt
 def best_uid(metagraph: bt.metagraph) -> int:
     """Returns the best performing UID in the metagraph."""
     return max(range(metagraph.n), key=lambda uid: metagraph.I[uid].item())
+
+def nearest_tempo(start_block, tempo, block):
+    start_num = start_block + tempo
+    intervals = (block - start_num) // tempo
+    nearest_num = start_num + intervals * tempo
+    if nearest_num >= block:
+        nearest_num -= tempo
+    return nearest_num
