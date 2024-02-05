@@ -31,15 +31,17 @@ from tqdm import tqdm
 class CortexSubsetLoader(IterableDataset):
     def __init__(self, latest=True, random_seed: typing.Optional[int] = None,
                  max_samples=300, steps: typing.Optional[int]=1, progress=False,
-                 retry_limit=10, page_size=100,
+                 retry_limit=10, page_size=100, running: typing.Optional[bool]=False,
                  cortex_project=constants.CORTEX_WANDB_PROJECT,
-                 cortex_version=constants.CORTEX_WANDB_VERSION,
                  cortex_type=constants.CORTEX_WANDB_TYPE):
         api = wandb.Api(timeout=100)
-        runs = api.runs(cortex_project, filters={
-            "config.version": cortex_version,
-            "config.type": cortex_type
-        })
+
+        filters = [
+            { "config.type": cortex_type }
+        ]
+        if running:
+            filters.append( {"state": "running"} )
+        runs = api.runs(cortex_project, filters={"$and": filters})
 
         retry_delay = 5  # Seconds to wait between retries
         attempt = 0

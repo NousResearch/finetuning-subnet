@@ -92,7 +92,7 @@ class Validator:
         parser.add_argument(
             "--latest_cortex_samples",
             type=int,
-            default=600,
+            default=400,
             help="Number of most recent Cortex samples to eval against",
         )
         parser.add_argument(
@@ -140,7 +140,7 @@ class Validator:
         parser.add_argument(
             "--grace_period_minutes",
             type=int,
-            default=180,
+            default=240,
             help="Grace period before old submissions from a UID are deleted",
         )
         parser.add_argument(
@@ -344,7 +344,7 @@ class Validator:
                         dt.timedelta(minutes=update_delay_minutes) - time_diff
                     ).total_seconds()
                     bt.logging.trace(
-                        f"Update loop has already processed all UIDs in the last 5 minutes. Sleeping {time_to_sleep} seconds."
+                        f"Update loop has already processed all UIDs in the last {update_delay_minutes} minutes. Sleeping {time_to_sleep} seconds."
                     )
                     time.sleep(time_to_sleep)
 
@@ -503,7 +503,7 @@ class Validator:
         pull_data_perf = PerfMonitor("Eval: Pull data")
         with pull_data_perf.sample():
             cortex_data = ft.dataset.CortexSubsetLoader(
-                latest=True,
+                latest=True, running=True,
                 random_seed=self.metagraph.block.item(),
                 max_samples=self.config.latest_cortex_samples,
                 steps=self.config.latest_cortex_steps,
