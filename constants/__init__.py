@@ -29,7 +29,6 @@ SUBNET_UID = 6
 SUBNET_START_BLOCK = 2225782
 # The Cortex.t validator WANDB project and filters
 CORTEX_WANDB_PROJECT = "cortex-t/multi-modality"
-CORTEX_WANDB_VERSION = "3.1.5"
 CORTEX_WANDB_TYPE = "validator"
 CORTEX_MAX_UIDS = 256
 # The root directory of this project.
