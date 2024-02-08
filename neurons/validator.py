@@ -147,7 +147,7 @@ class Validator:
         parser.add_argument(
             "--update_delay_minutes",
             type=int,
-            default=20,
+            default=5,
             help="Period between checking for new models from each UID",
         )
         parser.add_argument(
@@ -345,7 +345,7 @@ class Validator:
                 )
 
                 if time_diff and time_diff < dt.timedelta(minutes=update_delay_minutes):
-                    # If we have seen it within 5 minutes then sleep until it has been at least `update_delay_minutes` minutes.
+                    # If we have seen it within `update_delay_minutes` minutes then sleep until it has been at least `update_delay_minutes` minutes.
                     time_to_sleep = (
                         dt.timedelta(minutes=update_delay_minutes) - time_diff
                     ).total_seconds()
