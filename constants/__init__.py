@@ -59,7 +59,7 @@ assert \
 weights_version_key = 2002
 
 # validator weight moving average term
-alpha = 0.95
+alpha = 0.9
 # validator scoring exponential temperature
 temperature = 0.08
 # validator score boosting for earlier models.
