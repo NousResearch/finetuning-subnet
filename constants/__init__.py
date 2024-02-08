@@ -59,10 +59,10 @@ assert \
 weights_version_key = 2002
 
 # validator weight moving average term
-alpha = 0.9
+alpha = 0.95
 # validator scoring exponential temperature
-temperature = 0.04
+temperature = 0.08
 # validator score boosting for earlier models.
-timestamp_epsilon = 0.02
+timestamp_epsilon = 0.01
 # validator eval sequence length.
 sequence_length = 2048
