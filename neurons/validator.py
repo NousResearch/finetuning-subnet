@@ -21,7 +21,7 @@ import datetime as dt
 import os
 import json
 import math
-import pickle
+import sys
 import time
 import torch
 import random
@@ -31,6 +31,7 @@ import typing
 
 import wandb
 import constants
+from model.data import ModelMetadata
 from model.model_tracker import ModelTracker
 from model.model_updater import ModelUpdater
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
@@ -48,7 +49,7 @@ import finetune as ft
 from utilities.miner_iterator import MinerIterator
 from utilities import utils
 from utilities.perf_monitor import PerfMonitor
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, GenerationConfig
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -146,8 +147,13 @@ class Validator:
         parser.add_argument(
             "--update_delay_minutes",
             type=int,
-            default=20,
+            default=5,
             help="Period between checking for new models from each UID",
+        )
+        parser.add_argument(
+            "--do_sample",
+            action="store_true",
+            help="Sample a response from each model (for leaderboard)",
         )
 
         bt.subtensor.add_args(parser)
@@ -261,12 +267,11 @@ class Validator:
                 if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
                     bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
 
-            # only download new models since last consensus set
-            last_consensus_block = ft.graph.nearest_tempo(
-                constants.SUBNET_START_BLOCK,
-                self.subtensor.get_subnet_hyperparameters(self.config.netuid).tempo,
-                self.metagraph.block.item()
-            )
+            # only download new models since last full consensus set
+            block = self.metagraph.block.item()
+            tempo = self.subtensor.get_subnet_hyperparameters(self.config.netuid).tempo
+            last_consensus_block = ft.graph.nearest_tempo(constants.SUBNET_START_BLOCK, tempo, block - tempo)
+
             bt.logging.debug(f"Only downloading models newer than block {last_consensus_block}")
             self.model_updater.set_min_block(last_consensus_block)
         else:
@@ -339,7 +344,7 @@ class Validator:
                 )
 
                 if time_diff and time_diff < dt.timedelta(minutes=update_delay_minutes):
-                    # If we have seen it within 5 minutes then sleep until it has been at least `update_delay_minutes` minutes.
+                    # If we have seen it within `update_delay_minutes` minutes then sleep until it has been at least `update_delay_minutes` minutes.
                     time_to_sleep = (
                         dt.timedelta(minutes=update_delay_minutes) - time_diff
                     ).total_seconds()
@@ -437,9 +442,10 @@ class Validator:
 
     async def try_sync_metagraph(self, ttl: int):
         def sync_metagraph(endpoint):
-            metagraph = bt.subtensor(endpoint).metagraph(self.config.netuid)
-            metagraph.save()
-
+            # Update self.metagraph
+            self.metagraph = bt.subtensor(endpoint).metagraph(self.config.netuid)
+            self.metagraph.save()
+            
         process = multiprocessing.Process(
             target=sync_metagraph, args=(self.subtensor.chain_endpoint,)
         )
@@ -478,6 +484,9 @@ class Validator:
         7. Logs all relevant data for the step, including model IDs, pages, batches, wins, win rates, and losses.
         """
 
+        # Update self.metagraph
+        await self.try_sync_metagraph(ttl=60)
+        
         # Add uids with newly updated models to the upcoming batch of evaluations.
         with self.pending_uids_to_eval_lock:
             self.uids_to_eval.update(self.pending_uids_to_eval)
@@ -504,7 +513,7 @@ class Validator:
         with pull_data_perf.sample():
             cortex_data = ft.dataset.CortexSubsetLoader(
                 latest=True, running=True,
-                random_seed=self.metagraph.block.item(),
+                random_seed=random.randint(0, sys.maxsize),
                 max_samples=self.config.latest_cortex_samples,
                 steps=self.config.latest_cortex_steps,
                 page_size=self.config.latest_cortex_steps,
@@ -518,6 +527,7 @@ class Validator:
         model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if self.config.dtype == "bfloat16" else torch.float16
         if self.config.attn_implementation:
             model_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
+        model_parameters.kwargs["use_cache"] = True
 
         fixed_tokenizer = None
         if model_parameters.tokenizer:
@@ -526,10 +536,12 @@ class Validator:
         # Compute model losses on batches.
         bt.logging.debug(f"Computing losses on {uids}")
         losses_per_uid = {muid: None for muid in uids}
+        sample_per_uid = {muid: None for muid in uids}
 
         load_model_perf = PerfMonitor("Eval: Load model")
         compute_loss_perf = PerfMonitor("Eval: Compute loss")
 
+        uid_to_hotkey_and_model_metadata: typing.Dict[int, typing.Tuple[str, typing.Optional[ModelMetadata]]] = {}
         for uid_i in uids:
             # Check that the model is in the tracker.
             hotkey = self.metagraph.hotkeys[uid_i]
@@ -537,7 +549,22 @@ class Validator:
                 hotkey
             )
 
+            if model_i_metadata != None:
+                for other_uid, (other_hotkey, other_metadata) in uid_to_hotkey_and_model_metadata.items():
+                    if other_metadata and model_i_metadata.id.hash == other_metadata.id.hash:
+                        if model_i_metadata.block < other_metadata.block:
+                            bt.logging.debug(f"Perferring duplicate of {other_uid} with {uid_i} since it is older")
+                            uid_to_hotkey_and_model_metadata[other_uid] = (other_hotkey, None)
+                        else:
+                            bt.logging.debug(f"Perferring duplicate of {uid_i} with {other_uid} since it is newer")
+                            model_i_metadata = None
+                        break
+
+            uid_to_hotkey_and_model_metadata[uid_i] = (hotkey, model_i_metadata)
+
+        for uid_i, (hotkey, model_i_metadata) in uid_to_hotkey_and_model_metadata.items():
             losses: typing.List[float] = []
+            sample: typing.Optional[typing.Tuple[str, str]] = None
 
             if model_i_metadata != None:
                 self.model_tracker.touch_miner_model(hotkey)
@@ -556,12 +583,29 @@ class Validator:
                     if model_i.tokenizer is None:
                         raise RuntimeError("Missing tokenizer")
 
-                    batches = cortex_data.tokenize(fixed_tokenizer if fixed_tokenizer is not None else model_i.tokenizer)
+                    tokenizer = fixed_tokenizer if fixed_tokenizer is not None else model_i.tokenizer
+                    batches = cortex_data.tokenize(tokenizer)
 
                     with compute_loss_perf.sample():
                         losses = ft.validation.compute_losses(
                             model_i.pt_model, batches, device=self.config.device
                         )
+
+                    if self.config.do_sample:
+                        prompt, truth = cortex_data.buffer[random.randint(0, len(cortex_data.buffer))]
+                        conversation = [{"role": "user", "content": prompt}]
+                        input_ids =  tokenizer.apply_chat_template(
+                            conversation, truncation=True, return_tensors="pt",
+                            max_length=constants.sequence_length, add_generation_prompt=True,
+                        ).to(self.config.device)
+                        output = model_i.pt_model.generate(input_ids, generation_config=GenerationConfig(
+                            max_length=constants.sequence_length, do_sample=True, temperature=0.8,
+                            top_p=0.95, top_k=40, repetition_penalty=1.1,
+                            eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id
+                        ))
+                        response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
+                        sample = (prompt, response, truth)
+                        sample_per_uid[uid_i] = sample
 
                     del model_i
                 except Exception as e:
@@ -570,13 +614,13 @@ class Validator:
                     )
             else:
                 bt.logging.debug(
-                    f"Unable to load the model for {uid_i}. Setting loss to inifinity."
+                    f"Unable to load the model for {uid_i} (perhaps a duplicate?). Setting loss to inifinity."
                 )
 
             average_model_loss = sum(losses) / len(losses) if len(losses) > 0 else math.inf
             losses_per_uid[uid_i] = losses
             bt.logging.trace(
-                f"Computed model losses for uid:{uid_i} with average loss: {average_model_loss}"
+                f"Computed model losses for uid: {uid_i} with average loss: {average_model_loss}"
             )
 
         # Compute wins and win rates per uid.
@@ -622,6 +666,7 @@ class Validator:
             wins,
             win_rate,
             losses_per_uid,
+            sample_per_uid,
             load_model_perf.summary_str(),
             compute_loss_perf.summary_str(),
             pull_data_perf.summary_str(),
@@ -638,6 +683,7 @@ class Validator:
         wins,
         win_rate,
         losses_per_uid,
+        sample_per_uid,
         load_model_perf_str,
         compute_loss_perf_str,
         pull_data_perf_str,
@@ -654,13 +700,18 @@ class Validator:
                 "uid": uid,
                 "block": uid_to_block[uid],
                 "average_loss": sum(losses_per_uid[uid]) / len(losses_per_uid[uid]) if len(losses_per_uid[uid]) > 0 else math.inf,
+                "perplexity": float(torch.exp(torch.stack([torch.Tensor([x]) for x in losses_per_uid[uid]]).mean()).float().cpu()) if len(losses_per_uid[uid]) > 0 else math.inf,
                 "win_rate": win_rate[uid],
                 "win_total": wins[uid],
                 "weight": self.weights[uid].item(),
+                "sample_prompt": sample_per_uid[uid][0] if sample_per_uid[uid] is not None else None,
+                "sample_response": sample_per_uid[uid][1] if sample_per_uid[uid] is not None else None,
+                "sample_truth": sample_per_uid[uid][2] if sample_per_uid[uid] is not None else None,
             }
         table = Table(title="Step")
         table.add_column("uid", justify="right", style="cyan", no_wrap=True)
         table.add_column("average_loss", style="magenta")
+        table.add_column("perplexity", style="magenta")
         table.add_column("win_rate", style="magenta")
         table.add_column("win_total", style="magenta")
         table.add_column("weights", style="magenta")
@@ -670,6 +721,7 @@ class Validator:
                 table.add_row(
                     str(uid),
                     str(round(step_log["uid_data"][str(uid)]["average_loss"], 4)),
+                    str(round(step_log["uid_data"][str(uid)]["perplexity"], 4)),
                     str(round(step_log["uid_data"][str(uid)]["win_rate"], 4)),
                     str(step_log["uid_data"][str(uid)]["win_total"]),
                     str(round(self.weights[uid].item(), 4)),
@@ -717,11 +769,23 @@ class Validator:
                 "uid_data": {
                     str(uid): uid_data[str(uid)]["average_loss"] for uid in uids
                 },
+                "perplexity_data": {
+                    str(uid): uid_data[str(uid)]["perplexity"] for uid in uids
+                },
                 "win_rate_data": {
                     str(uid): uid_data[str(uid)]["win_rate"] for uid in uids
                 },
                 "win_total_data": {
                     str(uid): uid_data[str(uid)]["win_total"] for uid in uids
+                },
+                "sample_prompt_data": {
+                    str(uid): uid_data[str(uid)]["sample_prompt"] for uid in uids
+                },
+                "sample_response_data": {
+                    str(uid): uid_data[str(uid)]["sample_response"] for uid in uids
+                },
+                "sample_truth_data": {
+                    str(uid): uid_data[str(uid)]["sample_truth"] for uid in uids
                 },
                 "weight_data": {str(uid): self.weights[uid].item() for uid in uids},
                 "load_model_perf_log": load_model_perf_str,
@@ -742,7 +806,6 @@ class Validator:
                     < self.config.blocks_per_epoch
                 ):
                     await self.try_run_step(ttl=60 * 20)
-                    await self.try_sync_metagraph(ttl=60)
                     bt.logging.debug(
                         f"{self.metagraph.block.item() - self.last_epoch } / {self.config.blocks_per_epoch} blocks until next epoch."
                     )
