@@ -437,9 +437,10 @@ class Validator:
 
     async def try_sync_metagraph(self, ttl: int):
         def sync_metagraph(endpoint):
-            metagraph = bt.subtensor(endpoint).metagraph(self.config.netuid)
-            metagraph.save()
-
+            # Update self.metagraph
+            self.metagraph = bt.subtensor(endpoint).metagraph(self.config.netuid)
+            self.metagraph.save()
+            
         process = multiprocessing.Process(
             target=sync_metagraph, args=(self.subtensor.chain_endpoint,)
         )
@@ -478,6 +479,9 @@ class Validator:
         7. Logs all relevant data for the step, including model IDs, pages, batches, wins, win rates, and losses.
         """
 
+        # Update self.metagraph
+        await self.try_sync_metagraph(ttl=60)
+        
         # Add uids with newly updated models to the upcoming batch of evaluations.
         with self.pending_uids_to_eval_lock:
             self.uids_to_eval.update(self.pending_uids_to_eval)
@@ -742,7 +746,6 @@ class Validator:
                     < self.config.blocks_per_epoch
                 ):
                     await self.try_run_step(ttl=60 * 20)
-                    await self.try_sync_metagraph(ttl=60)
                     bt.logging.debug(
                         f"{self.metagraph.block.item() - self.last_epoch } / {self.config.blocks_per_epoch} blocks until next epoch."
                     )
