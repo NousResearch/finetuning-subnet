@@ -267,12 +267,11 @@ class Validator:
                 if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
                     bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
 
-            # only download new models since last consensus set
-            last_consensus_block = ft.graph.nearest_tempo(
-                constants.SUBNET_START_BLOCK,
-                self.subtensor.get_subnet_hyperparameters(self.config.netuid).tempo,
-                self.metagraph.block.item()
-            )
+            # only download new models since last full consensus set
+            block = self.metagraph.block.item()
+            tempo = self.subtensor.get_subnet_hyperparameters(self.config.netuid).tempo
+            last_consensus_block = ft.graph.nearest_tempo(constants.SUBNET_START_BLOCK, tempo, block - tempo)
+
             bt.logging.debug(f"Only downloading models newer than block {last_consensus_block}")
             self.model_updater.set_min_block(last_consensus_block)
         else:
