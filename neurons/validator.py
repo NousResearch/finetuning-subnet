@@ -513,7 +513,7 @@ class Validator:
         pull_data_perf = PerfMonitor("Eval: Pull data")
         with pull_data_perf.sample():
             cortex_data = ft.dataset.CortexSubsetLoader(
-                latest=(random.randint(0, sys.maxsize) % 2) == 0, running=True,
+                latest=True, running=True,
                 random_seed=random.randint(0, sys.maxsize),
                 max_samples=self.config.latest_cortex_samples,
                 steps=self.config.latest_cortex_steps,
