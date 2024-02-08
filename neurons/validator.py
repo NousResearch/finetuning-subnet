@@ -31,6 +31,7 @@ import typing
 
 import wandb
 import constants
+from model.data import ModelMetadata
 from model.model_tracker import ModelTracker
 from model.model_updater import ModelUpdater
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
@@ -508,7 +509,7 @@ class Validator:
         pull_data_perf = PerfMonitor("Eval: Pull data")
         with pull_data_perf.sample():
             cortex_data = ft.dataset.CortexSubsetLoader(
-                latest=True, running=True,
+                latest=(random.randint(0, sys.maxsize) % 2) == 0, running=True,
                 random_seed=random.randint(0, sys.maxsize),
                 max_samples=self.config.latest_cortex_samples,
                 steps=self.config.latest_cortex_steps,
@@ -537,6 +538,7 @@ class Validator:
         load_model_perf = PerfMonitor("Eval: Load model")
         compute_loss_perf = PerfMonitor("Eval: Compute loss")
 
+        uid_to_hotkey_and_model_metadata: typing.Dict[int, typing.Tuple[str, typing.Optional[ModelMetadata]]] = {}
         for uid_i in uids:
             # Check that the model is in the tracker.
             hotkey = self.metagraph.hotkeys[uid_i]
@@ -544,6 +546,20 @@ class Validator:
                 hotkey
             )
 
+            if model_i_metadata != None:
+                for other_uid, (other_hotkey, other_metadata) in uid_to_hotkey_and_model_metadata.items():
+                    if other_metadata and model_i_metadata.id.hash == other_metadata.id.hash:
+                        if model_i_metadata.block < other_metadata.block:
+                            bt.logging.debug(f"Perferring duplicate of {other_uid} with {uid_i} since it is older")
+                            uid_to_hotkey_and_model_metadata[other_uid] = (other_hotkey, None)
+                        else:
+                            bt.logging.debug(f"Perferring duplicate of {uid_i} with {other_uid} since it is newer")
+                            model_i_metadata = None
+                        break
+
+            uid_to_hotkey_and_model_metadata[uid_i] = (hotkey, model_i_metadata)
+
+        for uid_i, (hotkey, model_i_metadata) in uid_to_hotkey_and_model_metadata.items():
             losses: typing.List[float] = []
             sample: typing.Optional[typing.Tuple[str, str]] = None
 
@@ -573,7 +589,7 @@ class Validator:
                         )
 
                     if self.config.do_sample:
-                        prompt, _ = cortex_data.buffer[random.randint(0, len(cortex_data.buffer))]
+                        prompt, truth = cortex_data.buffer[random.randint(0, len(cortex_data.buffer))]
                         conversation = [{"role": "user", "content": prompt}]
                         input_ids =  tokenizer.apply_chat_template(
                             conversation, truncation=True, return_tensors="pt",
@@ -585,7 +601,8 @@ class Validator:
                             eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id
                         ))
                         response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
-                        sample_per_uid[uid_i] = (prompt, response)
+                        sample = (prompt, response, truth)
+                        sample_per_uid[uid_i] = sample
 
                     del model_i
                 except Exception as e:
@@ -594,7 +611,7 @@ class Validator:
                     )
             else:
                 bt.logging.debug(
-                    f"Unable to load the model for {uid_i}. Setting loss to inifinity."
+                    f"Unable to load the model for {uid_i} (perhaps a duplicate?). Setting loss to inifinity."
                 )
 
             average_model_loss = sum(losses) / len(losses) if len(losses) > 0 else math.inf
@@ -686,6 +703,7 @@ class Validator:
                 "weight": self.weights[uid].item(),
                 "sample_prompt": sample_per_uid[uid][0] if sample_per_uid[uid] is not None else None,
                 "sample_response": sample_per_uid[uid][1] if sample_per_uid[uid] is not None else None,
+                "sample_truth": sample_per_uid[uid][2] if sample_per_uid[uid] is not None else None,
             }
         table = Table(title="Step")
         table.add_column("uid", justify="right", style="cyan", no_wrap=True)
@@ -762,6 +780,9 @@ class Validator:
                 },
                 "sample_response_data": {
                     str(uid): uid_data[str(uid)]["sample_response"] for uid in uids
+                },
+                "sample_truth_data": {
+                    str(uid): uid_data[str(uid)]["sample_truth"] for uid in uids
                 },
                 "weight_data": {str(uid): self.weights[uid].item() for uid in uids},
                 "load_model_perf_log": load_model_perf_str,
