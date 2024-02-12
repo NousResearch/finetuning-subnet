@@ -79,6 +79,8 @@ class CortexSubsetLoader(IterableDataset):
                                     prompt: typing.Optional[str] = sample[f"prompts.{uid}"]
                                     response: typing.Optional[str]  = sample[f"responses.{uid}"]
                                     if isinstance(prompt, str) and isinstance(response, str):
+                                        if "as an ai language model" in prompt.lower():
+                                            continue
                                         prompt = prompt.strip()
                                         response = response.strip()
                                         if len(prompt) > 0 and len(response) > 0:
