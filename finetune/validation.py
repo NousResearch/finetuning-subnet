@@ -26,7 +26,7 @@ import traceback
 import bittensor as bt
 
 
-def iswin(loss_i, loss_j, block_i, block_j):
+def iswin(loss_i, loss_j, block_i, block_j, current_block):
     """
     Determines the winner between two models based on the epsilon adjusted loss.
 
@@ -39,8 +39,33 @@ def iswin(loss_i, loss_j, block_i, block_j):
         bool: True if loss i is better, False otherwise.
     """
     # Adjust loss based on timestamp and pretrain epsilon
-    loss_i = (1 - constants.timestamp_epsilon) * loss_i if block_i < block_j else loss_i
-    loss_j = (1 - constants.timestamp_epsilon) * loss_j if block_j < block_i else loss_j
+    block_delta_i = current_block - block_i
+    if block_delta_i <= constants.timestamp_decay_start:
+        epsilon_i = constants.timestamp_epsilon
+    elif block_delta_i > constants.timestamp_decay_start and (block_delta_i - constants.timestamp_decay_start) <= constants.timestamp_decay_period:
+        epsilon_factor_i = 1 - ((block_delta_i - constants.timestamp_decay_start) / constants.timestamp_decay_period)
+        epsilon_i = (epsilon_factor_i * (constants.timestamp_epsilon - constants.timestamp_epsilon_min)) + constants.timestamp_epsilon_min
+    else:
+        epsilon_i = constants.timestamp_epsilon_min
+
+    block_delta_j = current_block - block_j
+    if block_delta_j <= constants.timestamp_decay_start:
+        epsilon_j = constants.timestamp_epsilon
+    elif block_delta_j > constants.timestamp_decay_start and (block_delta_j - constants.timestamp_decay_start) <= constants.timestamp_decay_period:
+        epsilon_factor_j = 1 - ((block_delta_j - constants.timestamp_decay_start) / constants.timestamp_decay_period)
+        epsilon_j = (epsilon_factor_j * (constants.timestamp_epsilon - constants.timestamp_epsilon_min)) + constants.timestamp_epsilon_min
+    else:
+        epsilon_j = constants.timestamp_epsilon_min
+
+    if block_i < block_j:
+        loss_i = (1 - epsilon_i) * loss_i
+    else:
+        loss_i = loss_i
+
+    if block_j < block_i:
+        loss_j = (1 - epsilon_j) * loss_j
+    else:
+        loss_j = loss_j
     return loss_i < loss_j
 
 
