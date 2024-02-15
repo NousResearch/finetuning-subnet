@@ -59,13 +59,10 @@ def iswin(loss_i, loss_j, block_i, block_j, current_block):
 
     if block_i < block_j:
         loss_i = (1 - epsilon_i) * loss_i
-    else:
-        loss_i = loss_i
 
     if block_j < block_i:
         loss_j = (1 - epsilon_j) * loss_j
-    else:
-        loss_j = loss_j
+
     return loss_i < loss_j
 
 
