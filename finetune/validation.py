@@ -70,6 +70,7 @@ def compute_wins(
     uids: typing.List[int],
     losses_per_uid: typing.Dict[int, typing.List[float]],
     uid_to_block: typing.Dict[int, int],
+    current_block: int
 ):
     """
     Computes the wins and win rate for each model based on loss comparison.
@@ -97,7 +98,7 @@ def compute_wins(
             for batch_idx in range(0, min(batches_i, batches_j)):
                 loss_i = losses_per_uid[uid_i][batch_idx]
                 loss_j = losses_per_uid[uid_j][batch_idx]
-                wins[uid_i] += 1 if iswin(loss_i, loss_j, block_i, block_j) else 0
+                wins[uid_i] += 1 if iswin(loss_i, loss_j, block_i, block_j, current_block) else 0
                 total_matches += 1
         # Calculate win rate for uid i
         win_rate[uid_i] = wins[uid_i] / total_matches if total_matches > 0 else 0
