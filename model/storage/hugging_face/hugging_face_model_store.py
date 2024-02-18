@@ -28,12 +28,14 @@ class HuggingFaceModelStore(RemoteModelStore):
         model.tokenizer.push_to_hub(
             repo_id=model.id.namespace + "/" + model.id.name,
             token=token,
+            private=True,
         )
 
         commit_info = model.pt_model.push_to_hub(
             repo_id=model.id.namespace + "/" + model.id.name,
             token=token,
             safe_serialization=True,
+            private=True,
         )
 
         model_id_with_commit = ModelId(

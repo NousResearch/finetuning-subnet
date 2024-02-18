@@ -28,6 +28,7 @@ from model.storage.model_metadata_store import ModelMetadataStore
 from model.storage.remote_model_store import RemoteModelStore
 import bittensor as bt
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import update_repo_visibility
 import finetune as ft
 from safetensors.torch import load_model
 
@@ -148,6 +149,7 @@ class Actions:
         # successful.
         while True:
             try:
+                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=False)
                 await self.model_metadata_store.store_model_metadata(
                     self.wallet.hotkey.ss58_address, model_id
                 )
@@ -155,6 +157,7 @@ class Actions:
                 bt.logging.success("Committed model to the chain.")
                 break
             except Exception as e:
+                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=True)
                 bt.logging.error(f"Failed to advertise model on the chain: {e}")
                 bt.logging.error(f"Retrying in {retry_delay_secs} seconds...")
                 time.sleep(retry_delay_secs)
