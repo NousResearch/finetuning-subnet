@@ -63,6 +63,11 @@ alpha = 0.9
 # validator scoring exponential temperature
 temperature = 0.08
 # validator score boosting for earlier models.
-timestamp_epsilon = 0.01
+timestamp_epsilon_start = 0.01
+timestamp_epsilon_min = 0.00001
+# number of blocks before decaying
+timestamp_decay_start = 3600  # 3600 blocks = 12hr
+# period of blocks over which to decay after the secay_start block
+timestamp_decay_period = 3600
 # validator eval sequence length.
 sequence_length = 2048

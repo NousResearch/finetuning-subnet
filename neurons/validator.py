@@ -445,7 +445,7 @@ class Validator:
             # Update self.metagraph
             self.metagraph = bt.subtensor(endpoint).metagraph(self.config.netuid)
             self.metagraph.save()
-            
+
         process = multiprocessing.Process(
             target=sync_metagraph, args=(self.subtensor.chain_endpoint,)
         )
@@ -486,7 +486,7 @@ class Validator:
 
         # Update self.metagraph
         await self.try_sync_metagraph(ttl=60)
-        
+
         # Add uids with newly updated models to the upcoming batch of evaluations.
         with self.pending_uids_to_eval_lock:
             self.uids_to_eval.update(self.pending_uids_to_eval)
@@ -625,7 +625,7 @@ class Validator:
 
         # Compute wins and win rates per uid.
         wins, win_rate = ft.validation.compute_wins(
-            uids, losses_per_uid, uid_to_block
+            uids, losses_per_uid, uid_to_block, self.metagraph.block
         )
 
         # Compute softmaxed weights based on win rate.

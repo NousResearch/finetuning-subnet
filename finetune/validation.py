@@ -26,7 +26,7 @@ import traceback
 import bittensor as bt
 
 
-def iswin(loss_i, loss_j, block_i, block_j):
+def iswin(loss_i, loss_j, block_i, block_j, current_block):
     """
     Determines the winner between two models based on the epsilon adjusted loss.
 
@@ -39,8 +39,30 @@ def iswin(loss_i, loss_j, block_i, block_j):
         bool: True if loss i is better, False otherwise.
     """
     # Adjust loss based on timestamp and pretrain epsilon
-    loss_i = (1 - constants.timestamp_epsilon) * loss_i if block_i < block_j else loss_i
-    loss_j = (1 - constants.timestamp_epsilon) * loss_j if block_j < block_i else loss_j
+    block_delta_i = current_block - block_i
+    if block_delta_i <= constants.timestamp_decay_start:
+        epsilon_i = constants.timestamp_epsilon
+    elif block_delta_i > constants.timestamp_decay_start and (block_delta_i - constants.timestamp_decay_start) <= constants.timestamp_decay_period:
+        epsilon_factor_i = 1 - ((block_delta_i - constants.timestamp_decay_start) / constants.timestamp_decay_period)
+        epsilon_i = (epsilon_factor_i * (constants.timestamp_epsilon - constants.timestamp_epsilon_min)) + constants.timestamp_epsilon_min
+    else:
+        epsilon_i = constants.timestamp_epsilon_min
+
+    block_delta_j = current_block - block_j
+    if block_delta_j <= constants.timestamp_decay_start:
+        epsilon_j = constants.timestamp_epsilon
+    elif block_delta_j > constants.timestamp_decay_start and (block_delta_j - constants.timestamp_decay_start) <= constants.timestamp_decay_period:
+        epsilon_factor_j = 1 - ((block_delta_j - constants.timestamp_decay_start) / constants.timestamp_decay_period)
+        epsilon_j = (epsilon_factor_j * (constants.timestamp_epsilon - constants.timestamp_epsilon_min)) + constants.timestamp_epsilon_min
+    else:
+        epsilon_j = constants.timestamp_epsilon_min
+
+    if block_i < block_j:
+        loss_i = (1 - epsilon_i) * loss_i
+
+    if block_j < block_i:
+        loss_j = (1 - epsilon_j) * loss_j
+
     return loss_i < loss_j
 
 
@@ -48,6 +70,7 @@ def compute_wins(
     uids: typing.List[int],
     losses_per_uid: typing.Dict[int, typing.List[float]],
     uid_to_block: typing.Dict[int, int],
+    current_block: int
 ):
     """
     Computes the wins and win rate for each model based on loss comparison.
@@ -75,7 +98,7 @@ def compute_wins(
             for batch_idx in range(0, min(batches_i, batches_j)):
                 loss_i = losses_per_uid[uid_i][batch_idx]
                 loss_j = losses_per_uid[uid_j][batch_idx]
-                wins[uid_i] += 1 if iswin(loss_i, loss_j, block_i, block_j) else 0
+                wins[uid_i] += 1 if iswin(loss_i, loss_j, block_i, block_j, current_block) else 0
                 total_matches += 1
         # Calculate win rate for uid i
         win_rate[uid_i] = wins[uid_i] / total_matches if total_matches > 0 else 0
