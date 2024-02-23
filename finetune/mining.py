@@ -19,7 +19,7 @@
 import os
 import time
 from typing import Optional, Tuple
-from constants import ModelParameters
+from constants import CompetitionParameters
 from model.data import Model, ModelId
 from model.model_updater import ModelUpdater
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
@@ -91,7 +91,7 @@ class Actions:
             save_directory=model_dir
         )
 
-    def load_local_model(self, model_dir: str, model_parameters: ModelParameters) -> Tuple[PreTrainedModel, PreTrainedTokenizerBase]:
+    def load_local_model(self, model_dir: str, model_parameters: CompetitionParameters) -> Tuple[PreTrainedModel, PreTrainedTokenizerBase]:
         """Loads a model from a directory."""
         model = model_parameters.architecture.from_pretrained(
             pretrained_model_name_or_path=model_dir,
@@ -120,24 +120,24 @@ class Actions:
         if not model_metadata:
             raise ValueError(f"No model metadata found for miner {uid}")
 
-        parameters = ModelUpdater.get_model_parameters_for_block(model_metadata.block)
+        parameters = ModelUpdater.get_competition_parameters(model_metadata.id.competition_id)
         if parameters is None:
-            raise RuntimeError(f"Could not get model parameters for block {metagraph.block}")
+            raise RuntimeError(f"Could not get competition parameters for {model_metadata.id.competition_id}")
 
         model: Model = await self.remote_model_store.download_model(
             model_metadata.id, download_dir, parameters
         )
         return model.pt_model, model.tokenizer
 
-    async def push(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, model_parameters: ModelParameters, retry_delay_secs: int = 60):
+    async def push(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, competition_parameters: CompetitionParameters, retry_delay_secs: int = 60):
         """Pushes the model to Hugging Face and publishes it on the chain for evaluation by validators."""
-        bt.logging.info("Pushing model")
+        bt.logging.info(f"Pushing model for competition {competition_parameters.competition_id}")
 
         # First upload the model to HuggingFace.
-        model_id = ModelId(namespace=self.hf_repo_namespace, name=self.hf_repo_name)
+        model_id = ModelId(namespace=self.hf_repo_namespace, name=self.hf_repo_name, competition_id=competition_parameters.competition_id)
         model_id = await self.remote_model_store.upload_model(
             Model(id=model_id, pt_model=model, tokenizer=tokenizer),
-            model_parameters
+            competition_parameters
         )
 
         bt.logging.success(

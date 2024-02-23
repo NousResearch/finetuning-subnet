@@ -486,6 +486,8 @@ class Validator:
 
         # Update self.metagraph
         await self.try_sync_metagraph(ttl=60)
+
+        competition_parameters = constants.COMPETITION_SCHEDULE[int(self.metagraph.block.item()) % len(constants.COMPETITION_SCHEDULE)]
         
         # Add uids with newly updated models to the upcoming batch of evaluations.
         with self.pending_uids_to_eval_lock:
@@ -519,22 +521,19 @@ class Validator:
                 page_size=self.config.latest_cortex_steps,
             )
 
-        # Get model parameters for this block
-        model_parameters = ModelUpdater.get_model_parameters_for_block(self.metagraph.block)
-        if model_parameters is None:
-            bt.logging.warning(f"No model parameters for block {self.metagraph.block}, cannot run step")
-            return
-        model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if self.config.dtype == "bfloat16" else torch.float16
+        # Prepare evaluation
+
+        competition_parameters.kwargs["torch_dtype"] = torch.bfloat16 if self.config.dtype == "bfloat16" else torch.float16
         if self.config.attn_implementation:
-            model_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
-        model_parameters.kwargs["use_cache"] = True
+            competition_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
+        competition_parameters.kwargs["use_cache"] = True
 
         fixed_tokenizer = None
-        if model_parameters.tokenizer:
-            fixed_tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
+        if competition_parameters.tokenizer:
+            fixed_tokenizer = AutoTokenizer.from_pretrained(competition_parameters.tokenizer)
 
         # Compute model losses on batches.
-        bt.logging.debug(f"Computing losses on {uids}")
+        bt.logging.debug(f"Computing losses on {uids} for competition {competition_parameters.competition_id}")
         losses_per_uid = {muid: None for muid in uids}
         sample_per_uid = {muid: None for muid in uids}
 
@@ -567,50 +566,55 @@ class Validator:
             sample: typing.Optional[typing.Tuple[str, str]] = None
 
             if model_i_metadata != None:
-                self.model_tracker.touch_miner_model(hotkey)
+                if model_i_metadata.id.competition_id == competition_parameters.competition_id:
+                    self.model_tracker.touch_miner_model(hotkey)
 
-                try:
-                    # Update the block this uid last updated their model.
-                    uid_to_block[uid_i] = model_i_metadata.block
+                    try:
+                        # Update the block this uid last updated their model.
+                        uid_to_block[uid_i] = model_i_metadata.block
 
-                    # Get the model locally and evaluate its loss.
-                    model_i = None
-                    with load_model_perf.sample():
-                        model_i = self.local_store.retrieve_model(
-                            hotkey, model_i_metadata.id, model_parameters
+                        # Get the model locally and evaluate its loss.
+                        model_i = None
+                        with load_model_perf.sample():
+                            model_i = self.local_store.retrieve_model(
+                                hotkey, model_i_metadata.id, competition_parameters
+                            )
+
+                        if model_i.tokenizer is None:
+                            raise RuntimeError("Missing tokenizer")
+
+                        tokenizer = fixed_tokenizer if fixed_tokenizer is not None else model_i.tokenizer
+                        batches = cortex_data.tokenize(tokenizer)
+
+                        with compute_loss_perf.sample():
+                            losses = ft.validation.compute_losses(
+                                model_i.pt_model, batches, device=self.config.device
+                            )
+
+                        if self.config.do_sample:
+                            prompt, truth = cortex_data.buffer[random.randint(0, len(cortex_data.buffer))]
+                            conversation = [{"role": "user", "content": prompt}]
+                            input_ids =  tokenizer.apply_chat_template(
+                                conversation, truncation=True, return_tensors="pt",
+                                max_length=constants.sequence_length, add_generation_prompt=True,
+                            ).to(self.config.device)
+                            output = model_i.pt_model.generate(input_ids, generation_config=GenerationConfig(
+                                max_length=constants.sequence_length, do_sample=True, temperature=0.8,
+                                top_p=0.95, top_k=40, repetition_penalty=1.1,
+                                eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id
+                            ))
+                            response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
+                            sample = (prompt, response, truth)
+                            sample_per_uid[uid_i] = sample
+
+                        del model_i
+                    except Exception as e:
+                        bt.logging.error(
+                            f"Error in eval loop: {e}. Setting losses for uid: {uid_i} to infinity."
                         )
-
-                    if model_i.tokenizer is None:
-                        raise RuntimeError("Missing tokenizer")
-
-                    tokenizer = fixed_tokenizer if fixed_tokenizer is not None else model_i.tokenizer
-                    batches = cortex_data.tokenize(tokenizer)
-
-                    with compute_loss_perf.sample():
-                        losses = ft.validation.compute_losses(
-                            model_i.pt_model, batches, device=self.config.device
-                        )
-
-                    if self.config.do_sample:
-                        prompt, truth = cortex_data.buffer[random.randint(0, len(cortex_data.buffer))]
-                        conversation = [{"role": "user", "content": prompt}]
-                        input_ids =  tokenizer.apply_chat_template(
-                            conversation, truncation=True, return_tensors="pt",
-                            max_length=constants.sequence_length, add_generation_prompt=True,
-                        ).to(self.config.device)
-                        output = model_i.pt_model.generate(input_ids, generation_config=GenerationConfig(
-                            max_length=constants.sequence_length, do_sample=True, temperature=0.8,
-                            top_p=0.95, top_k=40, repetition_penalty=1.1,
-                            eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id
-                        ))
-                        response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
-                        sample = (prompt, response, truth)
-                        sample_per_uid[uid_i] = sample
-
-                    del model_i
-                except Exception as e:
-                    bt.logging.error(
-                        f"Error in eval loop: {e}. Setting losses for uid: {uid_i} to infinity."
+                else:
+                    bt.logging.trace(
+                        f"Skipping {uid_i}, submission is for a different competition"
                     )
             else:
                 bt.logging.debug(
@@ -638,7 +642,8 @@ class Validator:
         new_weights = torch.zeros_like(self.metagraph.S)
         for i, uid_i in enumerate(uids):
             new_weights[uid_i] = step_weights[i]
-        new_weights /= new_weights.sum()
+        scale = len(constants.COMPETITION_SCHEDULE) * competition_parameters.reward_percentage
+        new_weights *= scale / new_weights.sum()
         if new_weights.shape[0] < self.weights.shape[0]:
             self.weights = self.weights[:new_weights.shape[0]]
         elif new_weights.shape[0] > self.weights.shape[0]:
@@ -650,7 +655,7 @@ class Validator:
 
         # Filter based on win rate removing all by the sample_min best models for evaluation.
         self.uids_to_eval = set(
-            sorted(win_rate, key=win_rate.get, reverse=True)[: self.config.sample_min]
+            sorted(win_rate, key=win_rate.get, reverse=True)[: self.config.sample_min * len(constants.COMPETITION_SCHEDULE)]
         )
 
         # Log the performance of the eval loop.

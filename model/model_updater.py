@@ -1,6 +1,7 @@
 import bittensor as bt
 from typing import Optional
-from constants import ModelParameters, MODEL_PARAMETER_SCHEDULE
+from constants import CompetitionParameters, COMPETITION_SCHEDULE
+import constants
 from model.data import ModelMetadata, Model
 from model.model_tracker import ModelTracker
 from model.storage.local_model_store import LocalModelStore
@@ -28,24 +29,23 @@ class ModelUpdater:
         self.min_block = val
 
     @classmethod
-    def get_model_parameters_for_block(cls, block: int) -> Optional[ModelParameters]:
-        for i in reversed(range(0, len(MODEL_PARAMETER_SCHEDULE))):
-            schedule_block, parameters = MODEL_PARAMETER_SCHEDULE[i]
-            if block >= schedule_block:
-                return parameters
+    def get_competition_parameters(cls, id: str) -> Optional[CompetitionParameters]:
+        for x in COMPETITION_SCHEDULE:
+            if x.competition_id == id:
+                return x
         return None
     
-    def verify_model_satisfies_parameters(block: int, model: Model) -> bool:
-        model_parameters = ModelUpdater.get_model_parameters_for_block(block)
-        if not model_parameters:
+    def verify_model_satisfies_parameters(model: Model) -> bool:
+        parameters = ModelUpdater.get_competition_parameters(model.id.competition_id)
+        if not parameters:
             bt.logging.trace(
-                f"No model parameters found for block {block}"
+                f"No competition parameters found for {model.id.competition_id}"
             )
             return False
         
         # Check that the parameter count of the model is within allowed bounds.
         parameter_size = sum(p.numel() for p in model.pt_model.parameters())
-        if model_parameters.max_model_parameter_size is not None and parameter_size > model_parameters.max_model_parameter_size:
+        if parameters.max_model_parameter_size is not None and parameter_size > parameters.max_model_parameter_size:
             return False
         
         return True
@@ -71,11 +71,15 @@ class ModelUpdater:
                 f"Skipping model for {hotkey} since it was submitted at block {metadata.block} which is less than the minimum block {self.min_block}"
             )
             return False
+        
+        # Backwards compatability for models submitted before competition id added
+        if metadata.id.competition_id is None:
+            metadata.id.competition_id = constants.ORIGINAL_COMPETITION_ID
 
-        model_parameters = ModelUpdater.get_model_parameters_for_block(metadata.block)
-        if not model_parameters:
+        parameters = ModelUpdater.get_competition_parameters(metadata.id.competition_id)
+        if not parameters:
             bt.logging.trace(
-                f"No model parameters found for block {metadata.block}"
+                f"No competition parameters found for {metadata.id.competition_id}"
             )
             return False
 
@@ -90,7 +94,7 @@ class ModelUpdater:
         path = self.local_store.get_path(hotkey)
 
         # Otherwise we need to download the new model based on the metadata.
-        model = await self.remote_store.download_model(metadata.id, path, model_parameters)
+        model = await self.remote_store.download_model(metadata.id, path, parameters)
 
         # Check that the hash of the downloaded content matches.
         if model.id.hash != metadata.id.hash:
@@ -98,7 +102,7 @@ class ModelUpdater:
                 f"Sync for hotkey {hotkey} failed. Hash of content downloaded from hugging face does not match chain metadata. {metadata}"
             )
 
-        if not ModelUpdater.verify_model_satisfies_parameters(metadata.block, model):
+        if not ModelUpdater.verify_model_satisfies_parameters(model):
             raise ValueError(
                     f"Sync for hotkey {hotkey} failed, model does not satisfy parameters for block {metadata.block}"
                 )

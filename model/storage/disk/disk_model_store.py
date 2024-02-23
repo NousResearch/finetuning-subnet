@@ -2,7 +2,7 @@ import bittensor as bt
 import datetime
 import os
 from typing import Dict
-from constants import ModelParameters
+from constants import CompetitionParameters
 from model.data import Model, ModelId
 from model.storage.disk import utils
 from model.storage.local_model_store import LocalModelStore
@@ -44,7 +44,7 @@ class DiskModelStore(LocalModelStore):
         # Return the same model id used as we do not edit the commit information.
         return model.id
 
-    def retrieve_model(self, hotkey: str, model_id: ModelId, model_parameters: ModelParameters) -> Model:
+    def retrieve_model(self, hotkey: str, model_id: ModelId, model_parameters: CompetitionParameters) -> Model:
         """Retrieves a trained model locally."""
 
         pretrained_model_name_or_path = utils.get_local_model_snapshot_dir(

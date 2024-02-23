@@ -146,6 +146,17 @@ def get_config():
         default="bfloat16",
         help="datatype to load model in, either bfloat16 or float16",
     )
+    parser.add_argument(
+        "--competition_id",
+        type=str,
+        default=constants.ORIGINAL_COMPETITION_ID,
+        help="competition to mine for (use --list-competitions to get all competitions)"
+    )
+    parser.add_argument(
+        "--list_competitions",
+        action="store_true",
+        help="Print out all competitions"
+    )
 
     # Include wallet and logging arguments from bittensor
     bt.wallet.add_args(parser)
@@ -160,7 +171,7 @@ def get_config():
 
 async def load_starting_model(
     actions: Actions, config: bt.config, metagraph: bt.metagraph,
-    model_parameters: constants.ModelParameters
+    model_parameters: constants.CompetitionParameters
 ) -> typing.Tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Loads the model to train based on the provided config."""
 
@@ -378,6 +389,8 @@ async def main(config: bt.config):
 if __name__ == "__main__":
     # Parse and print configuration
     config = get_config()
-    print(config)
-
-    asyncio.run(main(config))
+    if config.list_competitions:
+        print(constants.COMPETITION_SCHEDULE)
+    else:
+        print(config)
+        asyncio.run(main(config))

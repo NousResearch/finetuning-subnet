@@ -2,10 +2,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from transformers import PreTrainedModel, LlamaForCausalLM
 from typing import Type, Optional, Any, List, Tuple
-import torch
+import math
 
 @dataclass
-class ModelParameters:
+class CompetitionParameters:
     """Class defining model parameters"""
 
     # The maximum parameter size allowed for models
@@ -16,6 +16,10 @@ class ModelParameters:
     kwargs: Any
     # Fixed tokenizer
     tokenizer: Optional[str]
+    # Reward percentage
+    reward_percentage: float
+    # Competition id
+    competition_id: str
 
 # ---------------------------------
 # Project Constants.
@@ -36,21 +40,21 @@ ROOT_DIR = Path(__file__).parent.parent
 # The maximum bytes for the hugging face repo
 MAX_HUGGING_FACE_BYTES: int = 15 * 1024 * 1024 * 1024
 # Schedule of model architectures
-MODEL_PARAMETER_SCHEDULE: List[Tuple[int, ModelParameters]] = [
-    (0, ModelParameters(
-            max_model_parameter_size=7 * 1024 * 1024 * 1024,
-            architecture=LlamaForCausalLM,
-            kwargs={},
-            tokenizer="mistralai/Mistral-7B-Instruct-v0.1"
-        )
+COMPETITION_SCHEDULE: List[CompetitionParameters] = [
+    CompetitionParameters(
+        max_model_parameter_size=7 * 1024 * 1024 * 1024,
+        architecture=LlamaForCausalLM,
+        kwargs={},
+        tokenizer="mistralai/Mistral-7B-Instruct-v0.1",
+        reward_percentage=1.0,
+        competition_id="m1"
     )
 ]
+ORIGINAL_COMPETITION_ID = "m1"
 
-assert \
-    all(
-        MODEL_PARAMETER_SCHEDULE[i][0] < MODEL_PARAMETER_SCHEDULE[i+1][0] \
-            for i in range(len(MODEL_PARAMETER_SCHEDULE) - 1)
-    )
+
+assert math.isclose(sum(x.reward_percentage for x in COMPETITION_SCHEDULE), 1.0)
+assert all(len(x.competition_id) > 0 and len(x.competition_id) <= 2 for x in COMPETITION_SCHEDULE)
 
 # ---------------------------------
 # Miner/Validator Model parameters.

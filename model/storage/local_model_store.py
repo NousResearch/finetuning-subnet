@@ -1,7 +1,7 @@
 import abc
 from typing import Dict
 from model.data import Model, ModelId
-from constants import ModelParameters
+from constants import CompetitionParameters
 
 
 class LocalModelStore(abc.ABC):
@@ -18,7 +18,7 @@ class LocalModelStore(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def retrieve_model(self, hotkey: str, model_id: ModelId, parameters: ModelParameters) -> Model:
+    def retrieve_model(self, hotkey: str, model_id: ModelId, parameters: CompetitionParameters) -> Model:
         """Retrieves a trained model from the appropriate location based on implementation."""
         pass
 
