@@ -210,11 +210,11 @@ class Validator:
         self.global_step = 0
         self.last_epoch = self.metagraph.block.item()
 
-        self.uids_to_eval = []
+        self.uids_to_eval: typing.Dict[str, typing.Set] = {}
 
         # Create a set of newly added uids that should be evaluated on the next loop.
         self.pending_uids_to_eval_lock = threading.RLock()
-        self.pending_uids_to_eval = set()
+        self.pending_uids_to_eval: typing.Dict[str, typing.Set] = {}
 
         # Setup a model tracker to track which miner is using which model id.
         self.model_tracker = ModelTracker()
@@ -244,28 +244,39 @@ class Validator:
 
         # Sync to consensus
         if not self.config.genesis:
-            consensus = [x[0] for x in sorted(
-                [(i, val.nan_to_num(0).item()) for (i, val) in enumerate(list(self.metagraph.consensus))],
-                key = lambda x: x[1],
-                reverse=True
-            )[: self.config.sample_min]]
-
-            self.uids_to_eval = set(consensus)
-            self.pending_uids_to_eval = set()
+            bt.logging.trace("Pulling competition ids for all hotkeys")
+            competition_ids: typing.Dict[int, typing.Optional[str]] = {}
+            for uid, hotkey in enumerate(list(self.metagraph.hotkeys)):
+                try:
+                    metadata: typing.Optional[ModelMetadata] = asyncio.run(self.metadata_store.retrieve_model_metadata(hotkey))
+                    competition_ids[uid] = (metadata.id.competition_id if metadata.id.competition_id is not None else constants.ORIGINAL_COMPETITION_ID) if metadata is not None else None
+                except:
+                    competition_ids[uid] = None
 
             self.weights.copy_(self.metagraph.C)
 
-            consensus_map = {
-                uid: self.weights[uid].item()
-                for uid in consensus
-            }
-            bt.logging.info(f"Consensus: {consensus_map}")
+            for competition in constants.COMPETITION_SCHEDULE:
+                bt.logging.trace(f"Building consensus state for competition {competition.competition_id}")
+                consensus = [x[0] for x in sorted(
+                    [(i, val.nan_to_num(0).item()) for (i, val) in enumerate(list(self.metagraph.consensus)) if competition_ids[i] == competition.competition_id],
+                    key = lambda x: x[1],
+                    reverse=True
+                )[: self.config.sample_min]]
 
-            for uid in consensus:
-                hotkey = self.metagraph.hotkeys[uid]
-                asyncio.run(self.model_updater.sync_model(hotkey))
-                if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
-                    bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
+                self.uids_to_eval[competition.competition_id] = set(consensus)
+                self.pending_uids_to_eval[competition.competition_id] = set()
+
+                consensus_map = {
+                    uid: self.weights[uid].item()
+                    for uid in consensus
+                }
+                bt.logging.info(f"Consensus for competition {competition.competition_id}: {consensus_map}")
+
+                for uid in consensus:
+                    hotkey = self.metagraph.hotkeys[uid]
+                    asyncio.run(self.model_updater.sync_model(hotkey))
+                    if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
+                        bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
 
             # only download new models since last full consensus set
             block = self.metagraph.block.item()
@@ -274,9 +285,6 @@ class Validator:
 
             bt.logging.debug(f"Only downloading models newer than block {last_consensus_block}")
             self.model_updater.set_min_block(last_consensus_block)
-        else:
-            self.uids_to_eval = set()
-            self.pending_uids_to_eval = set()
 
         # Touch all models, starting a timer for them to be deleted if not used
         self.model_tracker.touch_all_miner_models()
@@ -362,17 +370,20 @@ class Validator:
                 # Compare metadata and tracker, syncing new model from remote store to local if necessary.
                 updated = asyncio.run(self.model_updater.sync_model(hotkey))
 
-                bt.logging.trace(
-                    f"Updated model for UID={next_uid}. Was new = {updated}"
-                )
-
                 # Ensure we eval the new model on the next loop.
                 if updated:
-                    with self.pending_uids_to_eval_lock:
-                        self.pending_uids_to_eval.add(next_uid)
-                        bt.logging.debug(
-                            f"Found a new model for UID={next_uid}. It will be evaluated on the next loop."
+                    metadata = self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey)
+                    if metadata is not None:
+                        bt.logging.trace(
+                            f"Updated model for UID={next_uid}. Was new = {updated}"
                         )
+                        with self.pending_uids_to_eval_lock:
+                            self.pending_uids_to_eval[metadata.id.competition_id].add(next_uid)
+                            bt.logging.debug(
+                                f"Found a new model for UID={next_uid} for competition {metadata.id.competition_id}. It will be evaluated on the next loop."
+                            )
+                    else:
+                        bt.logging.warning(f"Unable to sync model for consensus UID {next_uid} with hotkey {hotkey}")
 
             except Exception as e:
                 bt.logging.error(
@@ -487,21 +498,26 @@ class Validator:
         # Update self.metagraph
         await self.try_sync_metagraph(ttl=60)
 
-        competition_parameters = constants.COMPETITION_SCHEDULE[int(self.metagraph.block.item()) % len(constants.COMPETITION_SCHEDULE)]
+        competition_parameters = constants.COMPETITION_SCHEDULE[self.global_step % len(constants.COMPETITION_SCHEDULE)]
         
         # Add uids with newly updated models to the upcoming batch of evaluations.
         with self.pending_uids_to_eval_lock:
-            self.uids_to_eval.update(self.pending_uids_to_eval)
-            self.pending_uids_to_eval.clear()
+            self.uids_to_eval[competition_parameters.competition_id].update(self.pending_uids_to_eval[competition_parameters.competition_id])
+            self.pending_uids_to_eval[competition_parameters.competition_id].clear()
 
         # Pull relevant uids for step. If they aren't found in the model tracker on eval they will be skipped.
-        uids = list(self.uids_to_eval)
+        uids = list(self.uids_to_eval[competition_parameters.competition_id])
 
         if not uids:
-            bt.logging.debug(
-                "No uids to eval. Waiting 5 minutes to download some models."
-            )
-            time.sleep(300)
+            if self.config.genesis:
+                bt.logging.debug(
+                    f"No uids to eval for competition {competition_parameters.competition_id}. Waiting 5 minutes to download some models."
+                )
+                time.sleep(300)
+            else:
+                bt.logging.debug(
+                    f"No uids to eval for competition {competition_parameters.competition_id}."
+                )
             return
 
         # Keep track of which block this uid last updated their model.
@@ -613,8 +629,8 @@ class Validator:
                             f"Error in eval loop: {e}. Setting losses for uid: {uid_i} to infinity."
                         )
                 else:
-                    bt.logging.trace(
-                        f"Skipping {uid_i}, submission is for a different competition"
+                    bt.logging.debug(
+                        f"Skipping {uid_i}, submission is for a different competition ({model_i_metadata.id.competition_id}). Setting loss to inifinity."
                     )
             else:
                 bt.logging.debug(
@@ -654,8 +670,8 @@ class Validator:
         self.weights = self.weights.nan_to_num(0.0)
 
         # Filter based on win rate removing all by the sample_min best models for evaluation.
-        self.uids_to_eval = set(
-            sorted(win_rate, key=win_rate.get, reverse=True)[: self.config.sample_min * len(constants.COMPETITION_SCHEDULE)]
+        self.uids_to_eval[competition_parameters.competition_id] = set(
+            sorted(win_rate, key=win_rate.get, reverse=True)[: self.config.sample_min ]
         )
 
         # Log the performance of the eval loop.
@@ -665,6 +681,7 @@ class Validator:
 
         # Log to screen and wandb.
         self.log_step(
+            competition_parameters.competition_id,
             uids,
             uid_to_block,
             cortex_data.selected_runs,
@@ -682,6 +699,7 @@ class Validator:
 
     def log_step(
         self,
+        competition_id,
         uids,
         uid_to_block,
         pages,
@@ -696,6 +714,7 @@ class Validator:
         # Build step log
         step_log = {
             "timestamp": time.time(),
+            "competition_id": competition_id,
             "pages": pages,
             "uids": uids,
             "uid_data": {},
@@ -770,6 +789,7 @@ class Validator:
             # Create a new dictionary with the required format
             graphed_data = {
                 "time": time.time(),
+                "competition_id": competition_id,
                 "block": self.metagraph.block.item(),
                 "uid_data": {
                     str(uid): uid_data[str(uid)]["average_loss"] for uid in uids
