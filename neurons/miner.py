@@ -132,6 +132,7 @@ def get_config():
     )
     parser.add_argument(
         "--attn_implementation",
+        default="flash_attention_2",
         help="Implementation of attention to use",
     )
     parser.add_argument(
@@ -242,8 +243,7 @@ async def main(config: bt.config):
             f"No model parameters found for block {block}"
         )
     model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if config.dtype == "bfloat16" else torch.float16
-    if config.attn_implementation:
-        model_parameters.kwargs["attn_implementation"] = config.attn_implementation
+    model_parameters.kwargs["attn_implementation"] = config.attn_implementation
 
     # Init model.
     model, tokenizer = await load_starting_model(miner_actions, config, metagraph, model_parameters)

@@ -125,6 +125,7 @@ class Validator:
         )
         parser.add_argument(
             "--attn_implementation",
+            default="flash_attention_2",
             help="Implementation of attention to use",
         )
         parser.add_argument(
@@ -540,8 +541,7 @@ class Validator:
         # Prepare evaluation
 
         competition_parameters.kwargs["torch_dtype"] = torch.bfloat16 if self.config.dtype == "bfloat16" else torch.float16
-        if self.config.attn_implementation:
-            competition_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
+        competition_parameters.kwargs["attn_implementation"] = self.config.attn_implementation
         competition_parameters.kwargs["use_cache"] = True
 
         fixed_tokenizer = None

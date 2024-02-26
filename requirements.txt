@@ -12,3 +12,4 @@ transformers==4.38.1
 wandb
 sentencepiece
 jinja2>=3.0.0
+flash-attn==2.5.5

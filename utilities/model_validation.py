@@ -55,6 +55,7 @@ def main():
     )
     parser.add_argument(
         "--attn_implementation",
+        default="flash_attention_2",
         help="Implementation of attention to use",
     )
     parser.add_argument(
@@ -81,8 +82,8 @@ def main():
     
     competition_parameters = ModelUpdater.get_competition_parameters(args.competition_id)
     competition_parameters.kwargs["torch_dtype"] = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
-    if args.attn_implementation:
-        competition_parameters.kwargs["attn_implementation"] = args.attn_implementation
+    competition_parameters.kwargs["attn_implementation"] = args.attn_implementation
+    competition_parameters.kwargs["use_cache"] = True
 
     print(f"Loading model for competition {args.competition_id}")
     load_model_perf = PerfMonitor("Eval: Load model")
