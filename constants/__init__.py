@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from transformers import PreTrainedModel, LlamaForCausalLM
+from transformers import PreTrainedModel, LlamaForCausalLM, GemmaForCausalLM
 from typing import Type, Optional, Any, List, Tuple
 import math
 
@@ -38,7 +38,7 @@ CORTEX_MAX_UIDS = 256
 # The root directory of this project.
 ROOT_DIR = Path(__file__).parent.parent
 # The maximum bytes for the hugging face repo
-MAX_HUGGING_FACE_BYTES: int = 15 * 1024 * 1024 * 1024
+MAX_HUGGING_FACE_BYTES: int = 16 * 1024 * 1024 * 1024
 # Schedule of model architectures
 COMPETITION_SCHEDULE: List[CompetitionParameters] = [
     CompetitionParameters(
@@ -46,8 +46,16 @@ COMPETITION_SCHEDULE: List[CompetitionParameters] = [
         architecture=LlamaForCausalLM,
         kwargs={},
         tokenizer="mistralai/Mistral-7B-Instruct-v0.1",
-        reward_percentage=1.0,
+        reward_percentage=0.33,
         competition_id="m1"
+    ),
+    CompetitionParameters(
+        max_model_parameter_size=8 * 1024 * 1024 * 1024,
+        architecture=GemmaForCausalLM,
+        kwargs={},
+        tokenizer="NousResearch/gemma-7b-it-tokenizer",
+        reward_percentage=0.67,
+        competition_id="g1"
     )
 ]
 ORIGINAL_COMPETITION_ID = "m1"
