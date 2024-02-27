@@ -275,8 +275,11 @@ class Validator:
 
                 for uid in consensus:
                     hotkey = self.metagraph.hotkeys[uid]
-                    asyncio.run(self.model_updater.sync_model(hotkey))
-                    if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
+                    try:
+                        asyncio.run(self.model_updater.sync_model(hotkey))
+                        if self.model_tracker.get_model_metadata_for_miner_hotkey(hotkey) is None:
+                            bt.logging.warning(f"Unable to get metadata for consensus UID {uid} with hotkey {hotkey}")
+                    except:
                         bt.logging.warning(f"Unable to sync model for consensus UID {uid} with hotkey {hotkey}")
 
             # only download new models since last full consensus set
