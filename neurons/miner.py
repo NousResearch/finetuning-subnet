@@ -237,7 +237,7 @@ async def main(config: bt.config):
             use_wandb = True
 
     block = metagraph.block.item()
-    model_parameters = ModelUpdater.get_competition_parameters(block, config.competition_id)
+    model_parameters = ModelUpdater.get_competition_parameters(config.competition_id)
     if not model_parameters:
         raise RuntimeError(
             f"No model parameters found for block {block}"
