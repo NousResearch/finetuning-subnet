@@ -38,7 +38,7 @@ CORTEX_MAX_UIDS = 256
 # The root directory of this project.
 ROOT_DIR = Path(__file__).parent.parent
 # The maximum bytes for the hugging face repo
-MAX_HUGGING_FACE_BYTES: int = 16 * 1024 * 1024 * 1024
+MAX_HUGGING_FACE_BYTES: int = 15 * 1024 * 1024 * 1024
 # Schedule of model architectures
 COMPETITION_SCHEDULE: List[CompetitionParameters] = [
     CompetitionParameters(
@@ -50,7 +50,7 @@ COMPETITION_SCHEDULE: List[CompetitionParameters] = [
         competition_id="m1"
     ),
     CompetitionParameters(
-        max_model_parameter_size=8 * 1024 * 1024 * 1024,
+        max_model_parameter_size=3 * 1024 * 1024 * 1024,
         architecture=GemmaForCausalLM,
         kwargs={},
         tokenizer="NousResearch/gemma-7b-it-tokenizer",
