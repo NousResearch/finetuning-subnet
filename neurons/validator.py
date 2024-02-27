@@ -391,7 +391,7 @@ class Validator:
 
             except Exception as e:
                 bt.logging.error(
-                    f"Error in update loop: {e} \n {traceback.format_exc()}"
+                    f"Error in update loop: {e}"
                 )
 
         bt.logging.info("Exiting update models loop.")
