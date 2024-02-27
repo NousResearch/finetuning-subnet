@@ -81,6 +81,8 @@ python neurons/miner.py --wallet.name coldkey --wallet.hotkey hotkey --hf_repo_i
 
 - `--avg_loss_upload_threshold`: should be the minimum average loss before you want your miner to upload the model.
 
+- `--competition_id`: competition you wish to mine for; run `--list_competitions` to get a list of available competitions
+
 
 ### Flags
 
