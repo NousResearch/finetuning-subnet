@@ -46,15 +46,15 @@ COMPETITION_SCHEDULE: List[CompetitionParameters] = [
         architecture=LlamaForCausalLM,
         kwargs={},
         tokenizer="mistralai/Mistral-7B-Instruct-v0.1",
-        reward_percentage=0.33,
+        reward_percentage=0.5,
         competition_id="m1"
     ),
     CompetitionParameters(
         max_model_parameter_size=3 * 1024 * 1024 * 1024,
         architecture=GemmaForCausalLM,
         kwargs={},
-        tokenizer="NousResearch/gemma-7b-it-tokenizer",
-        reward_percentage=0.67,
+        tokenizer="NousResearch/gemma-2b-it-tokenizer",
+        reward_percentage=0.5,
         competition_id="g1"
     )
 ]
