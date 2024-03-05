@@ -54,7 +54,7 @@ docker compose up --detach
 
 The mining script uploads a model to 🤗 Hugging Face which will be evaluated by validators.
 
-See [Validator Psuedocode](docs/validator.md#validator) for more information on how they the evaluation occurs.
+See [Validator Psuedocode](validator.md#validator) for more information on how they the evaluation occurs.
 
 ## Env File
 
