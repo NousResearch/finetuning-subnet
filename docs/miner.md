@@ -10,7 +10,7 @@ The communication between a miner and a validator happens asynchronously chain a
 
 Miners will need enough disk space to store their model as they work on. Each uploaded model (As of Jan 1st, 2024) may not be more than 15 GB. It is recommended to have at least 25 GB of disk space.
 
-Miners will need enough processing power to train their model. The device the model is trained on is recommended to be a large GPU with atleast 48 GB of VRAM.
+Miners will need enough processing power to train their model. The device the model is trained on is recommended to be a large GPU with at least 48 GB of VRAM.
 
 # Getting started
 
