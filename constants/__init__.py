@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from transformers import PreTrainedModel, LlamaForCausalLM, GemmaForCausalLM
+from transformers import PreTrainedModel, LlamaForCausalLM, GemmaForCausalLM, StableLmForCausalLM
 from typing import Type, Optional, Any, List, Tuple
 import math
 
@@ -50,12 +50,12 @@ COMPETITION_SCHEDULE: List[CompetitionParameters] = [
         competition_id="m1"
     ),
     CompetitionParameters(
-        max_model_parameter_size=3 * 1024 * 1024 * 1024,
-        architecture=GemmaForCausalLM,
+        max_model_parameter_size=2 * 1024 * 1024 * 1024,
+        architecture=StableLmForCausalLM,
         kwargs={},
-        tokenizer="NousResearch/gemma-2b-it-tokenizer",
+        tokenizer="stabilityai/stablelm-2-zephyr-1_6b",
         reward_percentage=0.5,
-        competition_id="g1"
+        competition_id="s1"
     )
 ]
 ORIGINAL_COMPETITION_ID = "m1"
