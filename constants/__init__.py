@@ -78,3 +78,8 @@ temperature = 0.08
 timestamp_epsilon = 0.01
 # validator eval sequence length.
 sequence_length = 2048
+
+# norm validation values
+norm_eps_soft = 500
+norm_eps_soft_percent_threshold = 0.3
+norm_eps_hard = 2500

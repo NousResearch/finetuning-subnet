@@ -15,7 +15,7 @@ from utilities.perf_monitor import PerfMonitor
 
 
 def load_model(model_path, parameters: constants.CompetitionParameters):
-    model_id = ModelId(namespace="namespace", name="name")
+    model_id = ModelId(namespace="namespace", name="name", competition_id=parameters.competition_id)
     pt_model = parameters.architecture.from_pretrained(
         pretrained_model_name_or_path=model_path,
         local_files_only=True,
@@ -28,7 +28,6 @@ def load_model(model_path, parameters: constants.CompetitionParameters):
         local_files_only=True,
     )
     return Model(id=model_id, pt_model=pt_model, tokenizer=tokenizer)
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -90,6 +89,10 @@ def main():
     with load_model_perf.sample():
         model = load_model(args.model_path, competition_parameters)
     print(load_model_perf.summary_str())
+
+    if not ModelUpdater.verify_model_satisfies_parameters(model):
+        print("Model does not satisfy competition parameters!!!")
+        return
 
     print("Getting latest Cortex data")
     pull_data_perf = PerfMonitor("Eval: Pull data")
