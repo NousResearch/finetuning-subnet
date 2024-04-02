@@ -9,6 +9,7 @@ from constants import CompetitionParameters, MAX_HUGGING_FACE_BYTES
 from model.storage.remote_model_store import RemoteModelStore
 import constants
 
+from . import hf_api_hotfix
 
 class HuggingFaceModelStore(RemoteModelStore):
     """Hugging Face based implementation for storing and retrieving a model."""
