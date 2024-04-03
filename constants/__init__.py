@@ -80,6 +80,6 @@ timestamp_epsilon = 0.01
 sequence_length = 2048
 
 # norm validation values
-norm_eps_soft = 500
-norm_eps_soft_percent_threshold = 0.3
-norm_eps_hard = 2500
+norm_eps_soft = 200
+norm_eps_soft_percent_threshold = 0.15
+norm_eps_hard = 1000
