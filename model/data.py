@@ -8,18 +8,14 @@ MAX_METADATA_BYTES = 128
 GIT_COMMIT_LENGTH = 40
 # The length, in bytes, of a base64 encoded sha256 hash.
 SHA256_BASE_64_LENGTH = 44
-
+# The max length, in characters, of the competition id
+MAX_COMPETITION_ID_LENGTH = 2
 
 class ModelId(BaseModel):
     """Uniquely identifies a trained model"""
 
-    # Makes the object "Immutable" once created.
-    class Config:
-        frozen = True
-        extra = "forbid"
-
     MAX_REPO_ID_LENGTH: ClassVar[int] = (
-        MAX_METADATA_BYTES - GIT_COMMIT_LENGTH - SHA256_BASE_64_LENGTH - 3  # separators
+        MAX_METADATA_BYTES - GIT_COMMIT_LENGTH - SHA256_BASE_64_LENGTH - MAX_COMPETITION_ID_LENGTH - 4  # separators
     )
 
     namespace: str = Field(
@@ -34,10 +30,12 @@ class ModelId(BaseModel):
     )
     # Hash is filled automatically when uploading to or downloading from a remote store.
     hash: Optional[str] = Field(description="Hash of the trained model.")
+    # Identifier for competition
+    competition_id: Optional[str] = Field(description="The competition id")
 
     def to_compressed_str(self) -> str:
         """Returns a compressed string representation."""
-        return f"{self.namespace}:{self.name}:{self.commit}:{self.hash}"
+        return f"{self.namespace}:{self.name}:{self.commit}:{self.hash}:{self.competition_id}"
 
     @classmethod
     def from_compressed_str(cls, cs: str) -> Type["ModelId"]:
@@ -48,6 +46,7 @@ class ModelId(BaseModel):
             name=tokens[1],
             commit=tokens[2] if tokens[2] != "None" else None,
             hash=tokens[3] if tokens[3] != "None" else None,
+            competition_id=tokens[4] if len(tokens) >= 5 and tokens[4] != "None" else None
         )
 
 

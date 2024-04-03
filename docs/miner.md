@@ -81,6 +81,8 @@ python neurons/miner.py --wallet.name coldkey --wallet.hotkey hotkey --hf_repo_i
 
 - `--avg_loss_upload_threshold`: should be the minimum average loss before you want your miner to upload the model.
 
+- `--competition_id`: competition you wish to mine for; run `--list_competitions` to get a list of available competitions
+
 
 ### Flags
 
@@ -120,10 +122,11 @@ python scripts/upload_model.py --load_model_dir <path to model> --hf_repo_id my-
 
 ## Running a custom Miner
 
-As of Jan 1st, 2024 the subnet works with any model supported by [LlamaForCausalLM](https://huggingface.co/docs/transformers/v4.37.2/en/model_doc/llama2#transformers.LlamaForCausalLM) subject to the following constraints:
+As of March 1st, 2024 the subnet works with mistral models supported by [LlamaForCausalLM](https://huggingface.co/docs/transformers/v4.37.2/en/model_doc/llama2#transformers.LlamaForCausalLM) or the Gemma model subject to the following constraints:
 1. Has less than 7B parameters.
 2. Total size of the repo is less than 15 Gigabytes.
 3. 2K max token sequence length.
+4. Utilizes the default chat format of the model selected.
 
 The `finetune/mining.py` file has several methods that you may find useful. Example below.
 

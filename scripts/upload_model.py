@@ -49,6 +49,17 @@ def get_config():
         default=constants.SUBNET_UID,
         help="The subnet UID.",
     )
+    parser.add_argument(
+        "--competition_id",
+        type=str,
+        default=constants.ORIGINAL_COMPETITION_ID,
+        help="competition to mine for (use --list-competitions to get all competitions)"
+    )
+    parser.add_argument(
+        "--list_competitions",
+        action="store_true",
+        help="Print out all competitions"
+    )
 
     # Include wallet and logging arguments from bittensor
     bt.wallet.add_args(parser)
@@ -77,9 +88,9 @@ async def main(config: bt.config):
     actions = ft.mining.Actions.create(config, wallet, subtensor)
 
     # Get current model parameters
-    parameters = ModelUpdater.get_model_parameters_for_block(metagraph.block)
+    parameters = ModelUpdater.get_competition_parameters(config.competition_id)
     if parameters is None:
-        raise RuntimeError(f"Could not get model parameters for block {metagraph.block}")
+        raise RuntimeError(f"Could not get competition parameters for block {config.competition_id}")
     parameters.kwargs["torch_dtype"] = torch.bfloat16
 
     # Load the model from disk and push it to the chain and Hugging Face.
@@ -90,6 +101,8 @@ async def main(config: bt.config):
 if __name__ == "__main__":
     # Parse and print configuration
     config = get_config()
-    print(config)
-
-    asyncio.run(main(config))
+    if config.list_competitions:
+        print(constants.COMPETITION_SCHEDULE)
+    else:
+        print(config)
+        asyncio.run(main(config))

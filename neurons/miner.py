@@ -132,6 +132,7 @@ def get_config():
     )
     parser.add_argument(
         "--attn_implementation",
+        default="flash_attention_2",
         help="Implementation of attention to use",
     )
     parser.add_argument(
@@ -145,6 +146,17 @@ def get_config():
         type=str,
         default="bfloat16",
         help="datatype to load model in, either bfloat16 or float16",
+    )
+    parser.add_argument(
+        "--competition_id",
+        type=str,
+        default=constants.ORIGINAL_COMPETITION_ID,
+        help="competition to mine for (use --list-competitions to get all competitions)"
+    )
+    parser.add_argument(
+        "--list_competitions",
+        action="store_true",
+        help="Print out all competitions"
     )
 
     # Include wallet and logging arguments from bittensor
@@ -160,7 +172,7 @@ def get_config():
 
 async def load_starting_model(
     actions: Actions, config: bt.config, metagraph: bt.metagraph,
-    model_parameters: constants.ModelParameters
+    model_parameters: constants.CompetitionParameters
 ) -> typing.Tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Loads the model to train based on the provided config."""
 
@@ -225,14 +237,13 @@ async def main(config: bt.config):
             use_wandb = True
 
     block = metagraph.block.item()
-    model_parameters = ModelUpdater.get_model_parameters_for_block(block)
+    model_parameters = ModelUpdater.get_competition_parameters(config.competition_id)
     if not model_parameters:
         raise RuntimeError(
             f"No model parameters found for block {block}"
         )
     model_parameters.kwargs["torch_dtype"] = torch.bfloat16 if config.dtype == "bfloat16" else torch.float16
-    if config.attn_implementation:
-        model_parameters.kwargs["attn_implementation"] = config.attn_implementation
+    model_parameters.kwargs["attn_implementation"] = config.attn_implementation
 
     # Init model.
     model, tokenizer = await load_starting_model(miner_actions, config, metagraph, model_parameters)
@@ -378,6 +389,8 @@ async def main(config: bt.config):
 if __name__ == "__main__":
     # Parse and print configuration
     config = get_config()
-    print(config)
-
-    asyncio.run(main(config))
+    if config.list_competitions:
+        print(constants.COMPETITION_SCHEDULE)
+    else:
+        print(config)
+        asyncio.run(main(config))
