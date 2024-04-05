@@ -116,9 +116,9 @@ class ModelUpdater:
         self.model_tracker.on_miner_model_updated(hotkey, metadata)
 
         return True
-
+    
     @staticmethod
-    def _validate_parameters(base_model, eps_soft, eps_soft_percent_threshold, eps_hard) -> bool:
+    def _validate_parameters(base_model, eps_soft, eps_soft_percent_threshold, eps_hard, print_vals=False) -> bool:
         """
         Validate that parameters of a model
 
@@ -129,26 +129,45 @@ class ModelUpdater:
             eps_soft_percent_threshold (float): Threshold of percentage above eps_soft that will trigger a detection
             eps_hard (float): Hard limit for any norm
         """
-        exceed_counts = {'k_proj': 0, 'v_proj': 0, 'up_proj': 0}
-        total_counts = {'k_proj': 0, 'v_proj': 0, 'up_proj': 0}
+
+        exceed_counts = {'q_proj': 0, 'k_proj': 0, 'v_proj': 0, 'o_proj': 0, 'up_proj': 0, 'down_proj': 0}
+        total_counts = {'q_proj': 0, 'k_proj': 0, 'v_proj': 0, 'o_proj': 0, 'up_proj': 0, 'down_proj': 0}
+        if print_vals:
+            avg_norms = {'q_proj': 0.0, 'k_proj': 0.0, 'v_proj': 0.0, 'o_proj': 0.0, 'up_proj': 0.0, 'down_proj': 0.0}
+            max_norms = {'q_proj': 0.0, 'k_proj': 0.0, 'v_proj': 0.0, 'o_proj': 0.0, 'up_proj': 0.0, 'down_proj': 0.0}
 
         for layer in base_model.model.layers:
-            for proj in ['k_proj', 'v_proj']:
+            for proj in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
                 weight_norm = getattr(layer.self_attn, proj).weight.norm().item()
                 if weight_norm > eps_hard:
                     return False
                 elif weight_norm > eps_soft:
                     exceed_counts[proj] += 1
                 total_counts[proj] += 1
+                if print_vals:
+                    avg_norms[proj] += weight_norm
+                    max_norms[proj] = max(max_norms[proj], weight_norm)
 
-            # up_proj is in the mlp layer
-            up_proj_norm = layer.mlp.up_proj.weight.norm().item()
-            if up_proj_norm > eps_hard:
-                return False
-            elif up_proj_norm > eps_soft:
-                exceed_counts['up_proj'] += 1
-            total_counts['up_proj'] += 1
+            # up_proj and down_proj are in the mlp layer
+            for proj in ['up_proj', 'down_proj']:
+                weight_norm = getattr(layer.mlp, proj).weight.norm().item()
+                if weight_norm > eps_hard:
+                    return False
+                elif weight_norm > eps_soft:
+                    exceed_counts[proj] += 1
+                total_counts[proj] += 1
+                if print_vals:
+                    avg_norms[proj] += weight_norm
+                    max_norms[proj] = max(max_norms[proj], weight_norm)
 
         # Calculating and printing percentages
         percentages = [exceed_counts[proj] / total_counts[proj] for proj in exceed_counts]
+
+        if print_vals:
+            for key, value in total_counts.items():
+                avg_norms[key] = avg_norms[key] / value
+            print(avg_norms)
+            print(max_norms)
+            print(percentages)
+
         return statistics.fmean(percentages) <= eps_soft_percent_threshold
