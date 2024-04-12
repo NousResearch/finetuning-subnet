@@ -131,7 +131,7 @@ As of March 1st, 2024 the subnet works with mistral models supported by [LlamaFo
 The `finetune/mining.py` file has several methods that you may find useful. Example below.
 
 ```python
-import pretrainas ft
+import pretrain as ft
 import bittensor as bt
 from transformers import PreTrainedModel
 
