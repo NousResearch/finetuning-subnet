@@ -1,4 +1,4 @@
-bittensor==6.9.3
+bittensor==6.10.1
 huggingface_hub
 matplotlib
 numpy
@@ -8,7 +8,7 @@ python-dotenv
 rich
 safetensors
 torch
-transformers==4.39.3
+transformers==4.40.0
 wandb
 sentencepiece
 jinja2>=3.0.0

@@ -42,19 +42,19 @@ MAX_HUGGING_FACE_BYTES: int = 15 * 1024 * 1024 * 1024
 # Schedule of model architectures
 COMPETITION_SCHEDULE: List[CompetitionParameters] = [
     CompetitionParameters(
-        max_model_parameter_size=7 * 1024 * 1024 * 1024,
+        max_model_parameter_size=8 * 1024 * 1024 * 1024,
         architecture=LlamaForCausalLM,
         kwargs={},
-        tokenizer="mistralai/Mistral-7B-Instruct-v0.1",
-        reward_percentage=0.5,
-        competition_id="m1"
+        tokenizer="NousResearch/Meta-Llama-3-8B-Instruct",
+        reward_percentage=0.6,
+        competition_id="l3"
     ),
     CompetitionParameters(
         max_model_parameter_size=2 * 1024 * 1024 * 1024,
         architecture=StableLmForCausalLM,
         kwargs={},
         tokenizer="stabilityai/stablelm-2-zephyr-1_6b",
-        reward_percentage=0.5,
+        reward_percentage=0.4,
         competition_id="s1"
     )
 ]
