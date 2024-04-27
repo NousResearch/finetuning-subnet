@@ -158,6 +158,12 @@ def get_config():
         action="store_true",
         help="Print out all competitions"
     )
+    parser.add_argument(
+        "--use_hotkey_in_hash",
+        action="store_true",  # Defaults to False.
+        help="If true, use the hotkey of the miner when generating the hash.",
+    )
+
 
     # Include wallet and logging arguments from bittensor
     bt.wallet.add_args(parser)
@@ -370,7 +376,7 @@ async def main(config: bt.config):
 
                 # First, reload the best model from the training run.
                 model_to_upload, tokenizer_to_upload = miner_actions.load_local_model(model_dir, model_parameters)
-                await miner_actions.push(model_to_upload, tokenizer_to_upload, model_parameters)
+                await miner_actions.push(model_to_upload, tokenizer_to_upload, model_parameters, use_hotkey_in_hash=config.use_hotkey_in_hash)
             else:
                 bt.logging.success(
                     f"This training run achieved a best_avg_loss={best_avg_loss}, which did not meet the upload threshold. Not uploading to hugging face."
