@@ -12,4 +12,4 @@ transformers==4.40.0
 wandb
 sentencepiece
 jinja2>=3.0.0
-flash-attn==2.5.5
+# flash-attn==2.5.5 # Optional, if your system has support

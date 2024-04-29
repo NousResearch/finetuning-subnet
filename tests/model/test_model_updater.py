@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from model import utils
 from model.data import Model, ModelId, ModelMetadata
 from model.model_tracker import ModelTracker
 
@@ -9,7 +10,7 @@ import finetune
 from tests.model.storage.fake_model_metadata_store import FakeModelMetadataStore
 from tests.model.storage.fake_remote_model_store import FakeRemoteModelStore
 from finetune.model import get_model
-from transformers import GPT2Config, GPT2LMHeadModel
+from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedModel
 
 
 class TestModelUpdater(unittest.TestCase):
@@ -27,6 +28,15 @@ class TestModelUpdater(unittest.TestCase):
 
     def tearDown(self):
         self.local_store.delete_unreferenced_models(dict(), 0)
+
+    def _get_small_model(self) -> PreTrainedModel:
+        """Gets a small model that works with even the earliest block."""
+        config = GPT2Config(
+            n_head=10,
+            n_layer=12,
+            n_embd=760,
+        )
+        return GPT2LMHeadModel(config)    
 
     def test_get_metadata(self):
         hotkey = "test_hotkey"
@@ -76,7 +86,7 @@ class TestModelUpdater(unittest.TestCase):
         )
         model_metadata = ModelMetadata(id=model_id, block=1)
 
-        pt_model = get_model()
+        pt_model = self._get_small_model()
 
         model = Model(id=model_id, pt_model=pt_model)
 
@@ -106,7 +116,7 @@ class TestModelUpdater(unittest.TestCase):
         )
         model_metadata = ModelMetadata(id=model_id, block=1)
 
-        pt_model = get_model()
+        pt_model = self._get_small_model()
 
         model = Model(id=model_id, pt_model=pt_model)
 
@@ -134,6 +144,38 @@ class TestModelUpdater(unittest.TestCase):
             str(self.local_store.retrieve_model(hotkey, model_id)), str(model)
         )
 
+    def test_sync_model_hotkey_hash(self):
+        hotkey = "test_hotkey"
+        model_hash = "test_hash"
+        model_id_chain = ModelId(
+            namespace="test_model",
+            name="test_name",
+            hash=utils.get_hash_of_two_strings(model_hash, hotkey),
+            commit="test_commit",
+        )
+        model_metadata = ModelMetadata(id=model_id_chain, block=1)
+
+        model_id = ModelId(
+            namespace="test_model",
+            name="test_name",
+            hash=model_hash,
+            commit="test_commit",
+        )
+
+        pt_model = self._get_small_model()
+
+        model = Model(id=model_id, pt_model=pt_model)
+
+        # Setup the metadata and remote store and but not local or the model tracker.
+        asyncio.run(
+            self.metadata_store.store_model_metadata_exact(hotkey, model_metadata)
+        )
+        self.remote_store.inject_mismatched_model(model_id_chain, model)
+
+        # Assert that we do update since the model_updater retries with the hotkey hash as well.
+        updated = asyncio.run(self.model_updater.sync_model(hotkey))
+        self.assertTrue(updated)
+
     def test_sync_model_bad_hash(self):
         hotkey = "test_hotkey"
         model_id_chain = ModelId(
@@ -151,7 +193,7 @@ class TestModelUpdater(unittest.TestCase):
             commit="test_commit",
         )
 
-        pt_model = get_model()
+        pt_model = self._get_small_model()
 
         model = Model(id=model_id, pt_model=pt_model)
 
