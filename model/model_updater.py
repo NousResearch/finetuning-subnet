@@ -1,6 +1,7 @@
 import bittensor as bt
 from typing import Optional
 from constants import CompetitionParameters, COMPETITION_SCHEDULE
+from model.utils import get_hash_of_two_strings
 import constants
 import statistics
 from model.data import ModelMetadata, Model
@@ -103,9 +104,17 @@ class ModelUpdater:
 
         # Check that the hash of the downloaded content matches.
         if model.id.hash != metadata.id.hash:
-            raise ValueError(
-                f"Sync for hotkey {hotkey} failed. Hash of content downloaded from hugging face does not match chain metadata. {metadata}"
-            )
+            # If the hash does not match directly, also try it with the hotkey of the miner.
+            # This is allowed to help miners prevent same-block copiers.
+            hash_with_hotkey = get_hash_of_two_strings(model.id.hash, hotkey)
+            if hash_with_hotkey != metadata.id.hash:
+                bt.logging.trace(
+                    f"Sync for hotkey {hotkey} failed. Hash of content downloaded from hugging face {model.id.hash} "
+                    + f"or the hash including the hotkey {hash_with_hotkey} do not match chain metadata {metadata}."
+                )
+                raise ValueError(
+                    f"Sync for hotkey {hotkey} failed. Hash of content downloaded from hugging face does not match chain metadata. {metadata}"
+                )
 
         if not ModelUpdater.verify_model_satisfies_parameters(model):
             raise ValueError(

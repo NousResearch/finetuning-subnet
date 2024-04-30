@@ -26,6 +26,7 @@ from model.storage.chain.chain_model_metadata_store import ChainModelMetadataSto
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
 from model.storage.model_metadata_store import ModelMetadataStore
 from model.storage.remote_model_store import RemoteModelStore
+from model.utils import get_hash_of_two_strings
 import bittensor as bt
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import update_repo_visibility
@@ -130,7 +131,14 @@ class Actions:
         )
         return model.pt_model, model.tokenizer
 
-    async def push(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase, competition_parameters: CompetitionParameters, retry_delay_secs: int = 60):
+    async def push(
+        self, 
+        model: PreTrainedModel, 
+        tokenizer: PreTrainedTokenizerBase, 
+        competition_parameters: CompetitionParameters, 
+        retry_delay_secs: int = 60, 
+        use_hotkey_in_hash: bool = False
+    ):
         """Pushes the model to Hugging Face and publishes it on the chain for evaluation by validators."""
         bt.logging.info(f"Pushing model for competition {competition_parameters.competition_id}")
 
@@ -141,10 +149,17 @@ class Actions:
             competition_parameters
         )
 
-        bt.logging.success(
-            f"Uploaded model to hugging face. Now committing to the chain with model_id: {model_id}"
-        )
+        bt.logging.success("Uploaded model to hugging face.")
 
+        # If using hotkey in the hash then adjust the hash.
+        if use_hotkey_in_hash:
+            bt.logging.info(
+                f"Hashing miner hotkey {self.wallet.hotkey.ss58_address} into the hash before uploading."
+            )
+            new_hash = get_hash_of_two_strings(model_id.hash, self.wallet.hotkey.ss58_address)
+            model_id = model_id.copy(update={"hash": new_hash})
+
+        bt.logging.success(f"Now committing to the chain with model_id: {model_id}")
         # We can only commit to the chain every 20 minutes, so run this in a loop, until
         # successful.
         while True:
