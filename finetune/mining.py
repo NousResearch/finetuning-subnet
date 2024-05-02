@@ -137,7 +137,7 @@ class Actions:
         tokenizer: PreTrainedTokenizerBase, 
         competition_parameters: CompetitionParameters, 
         retry_delay_secs: int = 60, 
-        use_hotkey_in_hash: bool = False
+        use_hotkey_in_hash: bool = True
     ):
         """Pushes the model to Hugging Face and publishes it on the chain for evaluation by validators."""
         bt.logging.info(f"Pushing model for competition {competition_parameters.competition_id}")
