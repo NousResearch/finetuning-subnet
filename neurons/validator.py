@@ -192,6 +192,7 @@ class Validator:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph: bt.metagraph = self.subtensor.metagraph(self.config.netuid)
+        self.block_hash: str = "0x0"
         torch.backends.cudnn.benchmark = True
 
         # Dont check registration status if offline.
@@ -455,6 +456,26 @@ class Validator:
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds")
 
+    async def try_get_blockhash(self, block_number: int, ttl: int):
+        def get_blockhash(endpoint):
+            # Update self.block_hash
+            self.block_hash = bt.subtensor(endpoint).get_block_hash(block_id=block_number)
+            
+        process = multiprocessing.Process(
+            target=get_blockhash, args=(self.subtensor.chain_endpoint,)
+        )
+        process.start()
+        process.join(timeout=ttl)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            bt.logging.error(f"Failed to fetch block hash after {ttl} seconds")
+            return
+
+        bt.logging.info("Synced metagraph")
+        self.metagraph.load()
+        self.miner_iterator.set_miner_uids(self.metagraph.uids.tolist())
+
     async def try_sync_metagraph(self, ttl: int):
         def sync_metagraph(endpoint):
             # Update self.metagraph
@@ -503,9 +524,9 @@ class Validator:
         await self.try_sync_metagraph(ttl=60)
         block_number = self.metagraph.block.item()
         print(f"Block number: {block_number}")
-        block_hash = self.subtensor.get_block_hash(block_id=block_number)
-        print(f"Block hash: {block_hash}")
-        seed = int(block_hash, 0)
+        await self.try_get_blockhash(block_number, ttl=60)
+        print(f"Block hash: {self.block_hash}")
+        seed = int(self.block_hash, 0)
         print(f"Seed: {seed}")
 
         competition_parameters = constants.COMPETITION_SCHEDULE[self.global_step % len(constants.COMPETITION_SCHEDULE)]
