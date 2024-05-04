@@ -192,7 +192,7 @@ class Validator:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph: bt.metagraph = self.subtensor.metagraph(self.config.netuid)
-        self.block_hash: str = "0x0"
+        self.block_hash = multiprocessing.Manager().Value(typecode='c', value='0x0'.encode())
         torch.backends.cudnn.benchmark = True
 
         # Dont check registration status if offline.
@@ -456,13 +456,13 @@ class Validator:
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds")
 
-    async def try_get_blockhash(self, block_number: int, ttl: int):
-        def get_blockhash(endpoint):
-            # Update self.block_hash
-            self.block_hash = bt.subtensor(endpoint).get_block_hash(block_id=block_number)
-            
+    async def try_get_block_hash(self, block_number: int, ttl: int):
+        def get_block_hash(endpoint, block_hash):
+            # Update the shared value
+            block_hash.value = bt.subtensor(endpoint).get_block_hash(block_id=block_number).encode()
+
         process = multiprocessing.Process(
-            target=get_blockhash, args=(self.subtensor.chain_endpoint,)
+            target=get_block_hash, args=(self.subtensor.chain_endpoint, self.block_hash)
         )
         process.start()
         process.join(timeout=ttl)
@@ -472,10 +472,7 @@ class Validator:
             bt.logging.error(f"Failed to fetch block hash after {ttl} seconds")
             return
 
-        bt.logging.info("Synced metagraph")
-        self.metagraph.load()
-        self.miner_iterator.set_miner_uids(self.metagraph.uids.tolist())
-
+        bt.logging.info(f"Updated block hash: {self.block_hash.value.decode()}")
     async def try_sync_metagraph(self, ttl: int):
         def sync_metagraph(endpoint):
             # Update self.metagraph
@@ -524,9 +521,10 @@ class Validator:
         await self.try_sync_metagraph(ttl=60)
         block_number = self.metagraph.block.item()
         print(f"Block number: {block_number}")
-        await self.try_get_blockhash(block_number, ttl=60)
-        print(f"Block hash: {self.block_hash}")
-        seed = int(self.block_hash, 0)
+        await self.try_get_block_hash(block_number, ttl=60)
+        block_hash = self.block_hash.value.decode()
+        print(f"Block hash: {block_hash}")
+        seed = int(block_hash, 0)
         print(f"Seed: {seed}")
 
         competition_parameters = constants.COMPETITION_SCHEDULE[self.global_step % len(constants.COMPETITION_SCHEDULE)]
