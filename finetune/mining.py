@@ -164,12 +164,13 @@ class Actions:
         # successful.
         while True:
             try:
-                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=False)
                 await self.model_metadata_store.store_model_metadata(
                     self.wallet.hotkey.ss58_address, model_id
                 )
+                bt.logging.success("Committed model to the chain. Updating model visibility.")
 
-                bt.logging.success("Committed model to the chain.")
+                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=False)
+                bt.logging.success("Model set to public")
                 break
             except Exception as e:
                 update_repo_visibility(model_id.namespace + "/" + model_id.name, private=True)
