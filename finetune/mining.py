@@ -137,7 +137,7 @@ class Actions:
         tokenizer: PreTrainedTokenizerBase, 
         competition_parameters: CompetitionParameters, 
         retry_delay_secs: int = 60, 
-        use_hotkey_in_hash: bool = False
+        use_hotkey_in_hash: bool = True
     ):
         """Pushes the model to Hugging Face and publishes it on the chain for evaluation by validators."""
         bt.logging.info(f"Pushing model for competition {competition_parameters.competition_id}")
@@ -164,12 +164,13 @@ class Actions:
         # successful.
         while True:
             try:
-                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=False)
                 await self.model_metadata_store.store_model_metadata(
-                    self.wallet.hotkey.ss58_address, model_id
+                    self.wallet.hotkey.ss58_address, model_id, wait_for_inclusion=True, wait_for_finalization=False
                 )
+                bt.logging.success("Committed model to the chain. Updating model visibility.")
 
-                bt.logging.success("Committed model to the chain.")
+                update_repo_visibility(model_id.namespace + "/" + model_id.name, private=False)
+                bt.logging.success("Model set to public")
                 break
             except Exception as e:
                 update_repo_visibility(model_id.namespace + "/" + model_id.name, private=True)

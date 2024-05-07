@@ -25,6 +25,14 @@ class CompetitionParameters:
 # Project Constants.
 # ---------------------------------
 
+__version__ = "0.2.7"
+version_split = __version__.split(".")
+__spec_version__ = (
+    (1000 * int(version_split[0]))
+    + (10 * int(version_split[1]))
+    + (1 * int(version_split[2]))
+)
+
 # The validator WANDB project.
 WANDB_PROJECT = "finetuning-subnet"
 # The uid for this subnet.
@@ -68,7 +76,7 @@ assert all(len(x.competition_id) > 0 and len(x.competition_id) <= 2 for x in COM
 # Miner/Validator Model parameters.
 # ---------------------------------
 
-weights_version_key = 2002
+weights_version_key = __spec_version__
 
 # validator weight moving average term
 alpha = 0.9

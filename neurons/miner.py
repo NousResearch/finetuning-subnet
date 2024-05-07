@@ -160,8 +160,9 @@ def get_config():
     )
     parser.add_argument(
         "--use_hotkey_in_hash",
-        action="store_true",  # Defaults to False.
+        action="store_true",
         help="If true, use the hotkey of the miner when generating the hash.",
+        default=True
     )
 
 
