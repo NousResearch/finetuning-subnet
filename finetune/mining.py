@@ -165,7 +165,7 @@ class Actions:
         while True:
             try:
                 await self.model_metadata_store.store_model_metadata(
-                    self.wallet.hotkey.ss58_address, model_id
+                    self.wallet.hotkey.ss58_address, model_id, wait_for_inclusion=True, wait_for_finalization=False
                 )
                 bt.logging.success("Committed model to the chain. Updating model visibility.")
 

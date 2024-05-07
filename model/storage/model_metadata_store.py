@@ -7,7 +7,7 @@ class ModelMetadataStore(abc.ABC):
     """An abstract base class for storing and retrieving model metadata."""
 
     @abc.abstractmethod
-    async def store_model_metadata(self, hotkey: str, model_id: ModelId):
+    async def store_model_metadata(self, hotkey: str, model_id: ModelId, wait_for_inclusion: bool = False, wait_for_finalization: bool = True):
         """Stores model metadata on this subnet for a specific miner."""
         pass
 
