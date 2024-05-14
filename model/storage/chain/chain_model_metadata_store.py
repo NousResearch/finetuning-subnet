@@ -35,6 +35,7 @@ class ChainModelMetadataStore(ModelMetadataStore):
         # Wrap calls to the subtensor in a subprocess with a timeout to handle potential hangs.
         partial = functools.partial(
             bt.extrinsics.serving.publish_metadata,
+            self.subtensor,
             self.wallet,
             self.subnet_uid,
             f"Raw{len(data)}",
