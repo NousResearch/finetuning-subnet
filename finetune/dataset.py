@@ -18,6 +18,7 @@
 import typing
 import torch
 import bittensor as bt
+from substrateinterface import Keypair
 import wandb
 from torch.utils.data import IterableDataset
 from wandb.apis.public.history import HistoryScan
@@ -25,7 +26,6 @@ from transformers import PreTrainedTokenizerBase
 import constants
 import time
 import numpy as np
-import math
 from tqdm import tqdm
 
 UNWANTED_PHRASES = [
@@ -216,16 +216,22 @@ UNWANTED_PHRASES = [
 ]
 
 class CortexSubsetLoader(IterableDataset):
-    def __init__(self, latest=True, random_seed: typing.Optional[int] = None,
-                 max_samples=300, steps: typing.Optional[int]=1, progress=False,
-                 retry_limit=10, page_size=100, running: typing.Optional[bool]=False,
-                 cortex_project=constants.CORTEX_WANDB_PROJECT,
-                 cortex_type=constants.CORTEX_WANDB_TYPE):
+    def __init__(
+        self, 
+        subtensor: typing.Optional[bt.subtensor] = None,
+        latest=True,
+        random_seed: typing.Optional[int] = None,
+        max_samples=300,
+        steps: typing.Optional[int]=1,
+        progress=False,
+        retry_limit=10, 
+        page_size=100, 
+        running: typing.Optional[bool]=False,
+        cortex_project=constants.CORTEX_WANDB_PROJECT,
+        cortex_type=constants.CORTEX_WANDB_TYPE):
         api = wandb.Api(timeout=100)
 
-        filters = [
-            { "config.type": cortex_type }
-        ]
+        filters = [{ "config.type": cortex_type }]
         if running:
             filters.append( {"state": "running"} )
         runs = api.runs(cortex_project, filters={"$and": filters})
@@ -247,7 +253,18 @@ class CortexSubsetLoader(IterableDataset):
 
                 for run_index in tqdm(run_order, desc="Run", leave=False, disable=not progress):
                     run = runs[run_index]
-                    self.selected_runs.append(run_index)
+                    if run.config:
+                        id = run.id
+                        hotkey = run.config.get("hotkey")
+                        signature = run.config.get("signature")
+                        if id and hotkey and signature:
+                            keypair = Keypair(ss58_address=hotkey)
+                            verified = keypair.verify(id.encode(), bytes.fromhex(signature))
+                            if verified and subtensor is not None:
+                                stake = subtensor.get_total_stake_for_hotkey(hotkey)
+                                stake_int = int(stake)
+                                if stake_int > 25000000000000:
+                                    self.selected_runs.append(run_index)
 
                     if latest:
                         last_step: int = run.lastHistoryStep
@@ -261,20 +278,22 @@ class CortexSubsetLoader(IterableDataset):
                     while True:
                         try:
                             sample = next(history_scan)
-                            for uid in range(constants.CORTEX_MAX_UIDS):
-                                try:
-                                    prompt: typing.Optional[str] = sample[f"prompts.{uid}"]
-                                    response: typing.Optional[str]  = sample[f"responses.{uid}"]
-                                    if isinstance(prompt, str) and isinstance(response, str):
-                                        prompt = prompt.strip()
-                                        response = response.strip()
-                                        if len(prompt) > 0 and len(response) > 0:
-                                            if not any(x in response for x in UNWANTED_PHRASES):
-                                                self.buffer.append((prompt, response))
-                                                if len(self.buffer) == max_samples:
-                                                    return
-                                except KeyError:
-                                    pass
+                            if sample and sample["modality"] == "text":
+                                for uid in range(constants.CORTEX_MAX_UIDS):
+                                    try:
+                                        prompt: typing.Optional[str] = sample[f"prompts.{uid}"]
+                                        response: typing.Optional[str]  = sample[f"responses.{uid}"]
+                                        score: typing.Optional[float] = sample[f"scores.{uid}"]
+                                        if isinstance(prompt, str) and isinstance(response, str) and isinstance(score, float):
+                                            prompt = prompt.strip()
+                                            response = response.strip()
+                                            if len(prompt) > 0 and len(response) > 0 and score > 0.0:
+                                                if not any(x in response for x in UNWANTED_PHRASES):
+                                                    self.buffer.append((prompt, response))
+                                                    if len(self.buffer) == max_samples:
+                                                        return
+                                    except KeyError:
+                                        pass
                         except StopIteration:
                             break
                 bt.logging.warning(f"Did not collect {max_samples}, only got {len(self.buffer)}")
