@@ -50,6 +50,7 @@ from utilities.miner_iterator import MinerIterator
 from utilities import utils
 from utilities.perf_monitor import PerfMonitor
 from transformers import AutoTokenizer, GenerationConfig
+import constants
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -329,7 +330,7 @@ class Validator:
                 "uid": self.uid,
                 "hotkey": self.wallet.hotkey.ss58_address,
                 "run_name": run_id,
-                "version": ft.__version__,
+                "version": constants.__version__,
                 "type": "validator",
             },
             allow_val_change=True,
