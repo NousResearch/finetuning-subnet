@@ -284,12 +284,16 @@ class CortexSubsetLoader(IterableDataset):
                                         prompt: typing.Optional[str] = sample[f"prompts.{uid}"]
                                         response: typing.Optional[str]  = sample[f"responses.{uid}"]
                                         score: typing.Optional[float] = sample[f"scores.{uid}"]
-                                        if isinstance(prompt, str) and isinstance(response, str) and isinstance(score, float):
+                                        if isinstance(prompt, str) and isinstance(response, str):
                                             prompt = prompt.strip()
                                             response = response.strip()
-                                            if len(prompt) > 0 and len(response) > 0 and score > 0.0:
+                                            if len(prompt) > 0 and len(response) > 0:
                                                 if not any(x in response for x in UNWANTED_PHRASES):
-                                                    self.buffer.append((prompt, response))
+                                                    if score and isinstance(score, float):
+                                                        if score > 0.0:
+                                                            self.buffer.append((prompt, response))
+                                                    else:
+                                                        self.buffer.append((prompt, response))
                                                     if len(self.buffer) == max_samples:
                                                         return
                                     except KeyError:
