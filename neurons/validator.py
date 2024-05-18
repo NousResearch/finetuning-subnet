@@ -193,6 +193,7 @@ class Validator:
         self.subtensor = bt.subtensor(config=self.config)
         self.dendrite = bt.dendrite(wallet=self.wallet)
         self.metagraph: bt.metagraph = self.subtensor.metagraph(self.config.netuid)
+        self.block_hash = multiprocessing.Manager().Value(typecode='c', value='0x0'.encode())
         torch.backends.cudnn.benchmark = True
 
         # Dont check registration status if offline.
@@ -456,6 +457,23 @@ class Validator:
         except asyncio.TimeoutError:
             bt.logging.error(f"Failed to set weights after {ttl} seconds")
 
+    async def try_get_block_hash(self, block_number: int, ttl: int):
+        def get_block_hash(endpoint, block_hash):
+            # Update the shared value
+            block_hash.value = bt.subtensor(endpoint).get_block_hash(block_id=block_number).encode()
+
+        process = multiprocessing.Process(
+            target=get_block_hash, args=(self.subtensor.chain_endpoint, self.block_hash)
+        )
+        process.start()
+        process.join(timeout=ttl)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            bt.logging.error(f"Failed to fetch block hash after {ttl} seconds")
+            return
+
+        bt.logging.info(f"Updated block hash: {self.block_hash.value.decode()}")
     async def try_sync_metagraph(self, ttl: int):
         def sync_metagraph(endpoint):
             # Update self.metagraph
@@ -492,7 +510,7 @@ class Validator:
         """
         Executes a step in the evaluation process of models. This function performs several key tasks:
         1. Identifies valid models for evaluation (top 5 from last run + newly updated models).
-        2. Generates random pages for evaluation and prepares batches for each page from the dataset.
+        2. Generates deterministic pages (using block hash as seed) for evaluation and prepares batches for each page from the dataset.
         3. Computes the scoring for each model based on the losses incurred on the evaluation batches.
         4. Calculates wins and win rates for each model to determine their performance relative to others.
         5. Updates the weights of each model based on their performance and applies a softmax normalization.
@@ -502,6 +520,13 @@ class Validator:
 
         # Update self.metagraph
         await self.try_sync_metagraph(ttl=60)
+        block_number = self.metagraph.block.item()
+        print(f"Block number: {block_number}")
+        await self.try_get_block_hash(block_number, ttl=60)
+        block_hash = self.block_hash.value.decode()
+        print(f"Block hash: {block_hash}")
+        seed = int(block_hash, 0)
+        print(f"Seed: {seed}")
 
         competition_parameters = constants.COMPETITION_SCHEDULE[self.global_step % len(constants.COMPETITION_SCHEDULE)]
         
@@ -538,7 +563,7 @@ class Validator:
                 subtensor=self.subtensor,
                 latest=True, 
                 running=True,
-                random_seed=random.randint(0, sys.maxsize),
+                random_seed=seed,
                 max_samples=self.config.latest_cortex_samples,
                 steps=self.config.latest_cortex_steps,
                 page_size=self.config.latest_cortex_steps,
@@ -574,10 +599,10 @@ class Validator:
                 for other_uid, (other_hotkey, other_metadata) in uid_to_hotkey_and_model_metadata.items():
                     if other_metadata and model_i_metadata.id.hash == other_metadata.id.hash:
                         if model_i_metadata.block < other_metadata.block:
-                            bt.logging.debug(f"Perferring duplicate of {other_uid} with {uid_i} since it is older")
+                            bt.logging.debug(f"Preferring duplicate of {other_uid} with {uid_i} since it is older")
                             uid_to_hotkey_and_model_metadata[other_uid] = (other_hotkey, None)
                         else:
-                            bt.logging.debug(f"Perferring duplicate of {uid_i} with {other_uid} since it is newer")
+                            bt.logging.debug(f"Preferring duplicate of {uid_i} with {other_uid} since it is newer")
                             model_i_metadata = None
                         break
 

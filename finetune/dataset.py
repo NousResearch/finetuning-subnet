@@ -217,42 +217,59 @@ UNWANTED_PHRASES = [
 
 class CortexSubsetLoader(IterableDataset):
     def __init__(
-        self, 
+        self,
         subtensor: typing.Optional[bt.subtensor] = None,
         latest=True,
         random_seed: typing.Optional[int] = None,
         max_samples=300,
-        steps: typing.Optional[int]=1,
+        steps: typing.Optional[int] = 1,
         progress=False,
-        retry_limit=10, 
-        page_size=100, 
-        running: typing.Optional[bool]=False,
+        retry_limit=10,
+        page_size=100,
+        running: typing.Optional[bool] = False,
         cortex_project=constants.CORTEX_WANDB_PROJECT,
-        cortex_type=constants.CORTEX_WANDB_TYPE):
-        api = wandb.Api(timeout=100)
+        cortex_type=constants.CORTEX_WANDB_TYPE,
+    ):
+        self.api = wandb.Api(timeout=100)
+        self.filters = [{"config.type": cortex_type}]
+        self.subtensor = subtensor
 
-        filters = [{ "config.type": cortex_type }]
         if running:
-            filters.append( {"state": "running"} )
-        runs = api.runs(cortex_project, filters={"$and": filters})
+            self.filters.append({"state": "running"})
+        self.runs = self.api.runs(cortex_project, filters={"$and": self.filters})
+        self.retry_delay = 5  # Seconds to wait between retries
+        self.max_samples = max_samples
+        self.steps = steps
+        self.progress = progress
+        self.retry_limit = retry_limit
+        self.page_size = page_size
+        self.latest = latest
+        self.generator = np.random.default_rng(seed=random_seed) if random_seed is not None else None
 
-        retry_delay = 5  # Seconds to wait between retries
+        self.run_order = list(range(len(self.runs)))
+        if self.generator is not None:
+            self.generator.shuffle(self.run_order)
+
+        self.last_steps = []
+        for run in self.runs:
+            if self.latest:
+                last_step: int = run.lastHistoryStep
+            else:
+                last_step = int(self.generator.random() * run.lastHistoryStep) if self.generator is not None else 0
+            self.last_steps.append(last_step)
+
+        self.buffer: typing.List[typing.Tuple[str, str]] = []
+        self.selected_runs: typing.List[int] = []
+
+        self.fetch_data()
+
+    def fetch_data(self):
         attempt = 0
 
-        generator = np.random.default_rng(seed=random_seed) if random_seed else None
-
-        while attempt < retry_limit:
+        while attempt < self.retry_limit:
             try:
-                run_order = list(range(len(runs)))
-
-                if generator is not None:
-                    generator.shuffle(run_order)
-
-                self.buffer: typing.List[typing.Tuple[str, str]] = []
-                self.selected_runs: typing.List[int] = []
-
-                for run_index in tqdm(run_order, desc="Run", leave=False, disable=not progress):
-                    run = runs[run_index]
+                for run_index in tqdm(self.run_order, desc="Run", leave=False, disable=not self.progress):
+                    run = self.runs[run_index]
                     if run.config:
                         id = run.id
                         hotkey = run.config.get("hotkey")
@@ -260,21 +277,16 @@ class CortexSubsetLoader(IterableDataset):
                         if id and hotkey and signature:
                             keypair = Keypair(ss58_address=hotkey)
                             verified = keypair.verify(id.encode(), bytes.fromhex(signature))
-                            if verified and subtensor is not None:
-                                stake = subtensor.get_total_stake_for_hotkey(hotkey)
+                            if verified and self.subtensor is not None:
+                                stake = self.subtensor.get_total_stake_for_hotkey(hotkey)
                                 stake_int = int(stake)
                                 if stake_int > 25000000000000:
                                     self.selected_runs.append(run_index)
 
-                    if latest:
-                        last_step: int = run.lastHistoryStep
-                    elif generator is not None:
-                        last_step = int(generator.random() * run.lastHistoryStep)
-                    else:
-                        last_step = 0
+                    last_step = self.last_steps[run_index]
                     max_step = last_step + 1
-                    min_step = max(0, max_step - steps) if steps is not None else 0
-                    history_scan = HistoryScan(run.client, run, min_step, max_step, page_size=page_size)
+                    min_step = max(0, max_step - self.steps) if self.steps is not None else 0
+                    history_scan = HistoryScan(run.client, run, min_step, max_step, page_size=self.page_size)
                     while True:
                         try:
                             sample = next(history_scan)
@@ -294,21 +306,21 @@ class CortexSubsetLoader(IterableDataset):
                                                             self.buffer.append((prompt, response))
                                                     else:
                                                         self.buffer.append((prompt, response))
-                                                    if len(self.buffer) == max_samples:
+                                                    if len(self.buffer) == self.max_samples:
                                                         return
                                     except KeyError:
                                         pass
                         except StopIteration:
                             break
-                bt.logging.warning(f"Did not collect {max_samples}, only got {len(self.buffer)}")
+                bt.logging.warning(f"Did not collect {self.max_samples}, only got {len(self.buffer)}")
                 return
             except:
                 attempt += 1
                 bt.logging.warning(
-                    f"Failed to fetch data, retrying. Attempt {attempt}/{retry_limit}"
+                    f"Failed to fetch data, retrying. Attempt {attempt}/{self.retry_limit}"
                 )
-                if attempt < retry_limit:
-                    time.sleep(retry_delay)  # Wait before the next retry
+                if attempt < self.retry_limit:
+                    time.sleep(self.retry_delay)  # Wait before the next retry
                 else:
                     bt.logging.error(
                         "Maximum retry limit reached. Unable to fetch data."
