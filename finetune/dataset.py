@@ -278,7 +278,7 @@ class CortexSubsetLoader(IterableDataset):
                     while True:
                         try:
                             sample = next(history_scan)
-                            if sample and sample["modality"] == "text":
+                            if sample and sample.get("modality") == "text":
                                 for uid in range(constants.CORTEX_MAX_UIDS):
                                     try:
                                         prompt: typing.Optional[str] = sample[f"prompts.{uid}"]
