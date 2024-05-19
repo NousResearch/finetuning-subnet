@@ -1,6 +1,8 @@
 # VS Code
 .vscode/
 
+.DS_Store
+
 test-models/
 
 # Exclude the Miner's and Validator's directory for saving the models.
