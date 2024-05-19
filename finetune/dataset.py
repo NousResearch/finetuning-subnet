@@ -63,10 +63,6 @@ class CortexSubsetLoader(IterableDataset):
         self.api = wandb.Api(timeout=100)
         self.filters = [{"config.type": cortex_type}]
         self.subtensor = subtensor
-
-        if running:
-            self.filters.append({"state": "running"})
-        self.runs = self.api.runs(cortex_project, filters={"$and": self.filters})
         self.retry_delay = 5  # Seconds to wait between retries
         self.max_samples = max_samples
         self.steps = steps
@@ -74,9 +70,17 @@ class CortexSubsetLoader(IterableDataset):
         self.retry_limit = retry_limit
         self.page_size = page_size
         self.latest = latest
-        self.generator = np.random.default_rng(seed=random_seed) if random_seed is not None else None
+
+        if running:
+            self.filters.append({"state": "running"})
+        
+        self.runs = self.api.runs(cortex_project, filters={"$and": self.filters})
+        if not self.runs:
+            raise ValueError("No runs found for the specified Cortex project and filters.")
 
         self.run_order = list(range(len(self.runs)))
+
+        self.generator = np.random.default_rng(seed=random_seed) if random_seed is not None else None
         if self.generator is not None:
             self.generator.shuffle(self.run_order)
 
@@ -122,6 +126,8 @@ class CortexSubsetLoader(IterableDataset):
         Processes each run to verify that it belongs to a validator w/ minimum stake and then collect samples from the run.
         """
         for run_index in tqdm(self.run_order, desc="Run", leave=False, disable=not self.progress):
+            if run_index >= len(self.runs):
+                break
             run = self.runs[run_index]
             if run.config:
                 self.verify_and_select_run(run, run_index)
@@ -146,9 +152,10 @@ class CortexSubsetLoader(IterableDataset):
                 verified = keypair.verify(id.encode(), bytes.fromhex(signature))
                 if verified and self.subtensor is not None:
                     stake = self.subtensor.get_total_stake_for_hotkey(hotkey)
-                    stake_int = int(stake)
-                    if stake_int > 25000000000000:
-                        self.selected_runs.append(run_index)
+                    if stake is not None:
+                        stake_int = int(stake)
+                        if stake_int > 10000000000000:
+                            self.selected_runs.append(run_index)
         except Exception as e:
             bt.logging.warning(f"Error verifying run {run.id}: {e}")
 
