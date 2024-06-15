@@ -1,6 +1,8 @@
 # VS Code
 .vscode/
 
+.DS_Store
+
 test-models/
 
 # Exclude the Miner's and Validator's directory for saving the models.
@@ -173,3 +175,5 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+run.sh

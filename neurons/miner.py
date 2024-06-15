@@ -34,6 +34,7 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from finetune.mining import Actions
 from utilities import utils
 import datetime as dt
+import constants
 
 from dotenv import load_dotenv
 
@@ -282,7 +283,7 @@ async def main(config: bt.config):
                 "uid": my_uid,
                 "hotkey": wallet.hotkey.ss58_address,
                 "run_name": run_id,
-                "version": ft.__version__,
+                "version": constants.__version__,
                 "type": "miner",
             },
             allow_val_change=True,
@@ -309,6 +310,7 @@ async def main(config: bt.config):
                 f"Loading {config.cortex_samples_per_epoch} pages for training this epoch"
             )
             loader = ft.dataset.CortexSubsetLoader(
+                subtensor=subtensor,
                 latest=False,
                 random_seed=random.randint(0, 100000000),
                 max_samples=config.cortex_samples_per_epoch,

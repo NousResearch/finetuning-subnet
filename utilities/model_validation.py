@@ -2,6 +2,7 @@ import sys
 import math
 import random
 
+import bittensor as bt
 from model.data import ModelId
 from transformers import AutoTokenizer
 from finetune.dataset import CortexSubsetLoader
@@ -99,6 +100,7 @@ def main():
 
     with pull_data_perf.sample():
         cortex_data = CortexSubsetLoader(
+            subtensor=bt.subtensor(),
             latest=True,
             running=True,
             random_seed=random.randint(0, sys.maxsize),
